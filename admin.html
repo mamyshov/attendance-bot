@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Табельная — панель отдела кадров</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#DED2AE; --paper-dark:#CBBC90; --ink:#22241F; --ink-soft:#54544A;
+    --green:#33613F; --green-dark:#234830; --rust:#9B3B27; --rust-dark:#7A2E1E;
+    --card-bg:#F1E9D2; --line:#B8A876;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',sans-serif;min-height:100vh;}
+  .wrap{max-width:1000px;margin:0 auto;padding:24px 18px 60px;}
+  header{border-bottom:3px solid var(--ink);padding-bottom:12px;margin-bottom:20px;}
+  header h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;text-transform:uppercase;margin:0;}
+  header .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1.5px;color:var(--ink-soft);text-transform:uppercase;}
+
+  #loginScreen{max-width:360px;margin:80px auto;text-align:center;}
+  #loginScreen input{width:100%;font-family:'IBM Plex Mono',monospace;font-size:15px;padding:10px;border:2px solid var(--ink);background:#fff;margin:14px 0;}
+  #loginScreen button{width:100%;}
+
+  .card{background:var(--card-bg);border:2px solid var(--ink);padding:18px;margin-bottom:18px;position:relative;}
+  .card::before{content:attr(data-tag);position:absolute;top:-11px;left:14px;background:var(--paper);padding:0 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-soft);}
+
+  label{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px;color:var(--ink-soft);}
+  input[type=date], input[type=text], input[type=number], select{
+    font-family:'IBM Plex Mono',monospace;font-size:14px;padding:9px;border:2px solid var(--ink);background:#fff;color:var(--ink);width:100%;
+  }
+  .filters{display:flex;gap:14px;flex-wrap:wrap;align-items:end;}
+  .filters > div{flex:1;min-width:150px;}
+  .filters button{white-space:nowrap;}
+
+  button{font-family:'Oswald',sans-serif;font-weight:600;font-size:14px;letter-spacing:0.5px;text-transform:uppercase;background:var(--ink);color:var(--paper);border:none;padding:11px 16px;cursor:pointer;}
+  button:hover{background:var(--green-dark);}
+  button.secondary{background:transparent;border:2px solid var(--ink);color:var(--ink);}
+  button.secondary:hover{background:var(--ink);color:var(--paper);}
+
+  table{width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:13px;}
+  th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;}
+  th{font-family:'Oswald',sans-serif;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-size:11px;color:var(--ink-soft);}
+  td.late{color:var(--rust-dark);font-weight:600;}
+  td.early{color:var(--rust-dark);font-weight:600;}
+  td.ok{color:var(--green-dark);}
+  .empty-note{font-size:13px;color:var(--ink-soft);text-align:center;padding:20px 0;}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
+
+  .sched-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px dashed var(--line);}
+  .sched-row > div{min-width:110px;}
+  .sched-row .name{min-width:160px;font-weight:600;padding-top:8px;}
+  .days{display:flex;gap:4px;flex-wrap:wrap;}
+  .day-toggle{border:2px solid var(--ink);padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:12px;background:#fff;cursor:pointer;user-select:none;}
+  .day-toggle.active{background:var(--green);color:#fff;border-color:var(--green);}
+  .hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="eyebrow" style="text-align:center;">Табельная</div>
+  <h1 style="font-family:'Oswald',sans-serif;text-transform:uppercase;">Вход для HR</h1>
+  <input type="text" id="passInput" placeholder="Пароль администратора" onkeydown="if(event.key==='Enter')login()">
+  <button onclick="login()">Войти</button>
+  <div class="hint" id="loginError" style="color:#9B3B27;"></div>
+</div>
+
+<div class="wrap" id="mainScreen" style="display:none;">
+  <header>
+    <div class="eyebrow">Учёт присутствия</div>
+    <h1>Панель отдела кадров</h1>
+  </header>
+
+  <div class="card" data-tag="Отчёт">
+    <div class="filters">
+      <div>
+        <label>С даты</label>
+        <input type="date" id="fromDate">
+      </div>
+      <div>
+        <label>По дату</label>
+        <input type="date" id="toDate">
+      </div>
+      <div>
+        <label>Сотрудник</label>
+        <select id="empFilter"><option value="">Все сотрудники</option></select>
+      </div>
+      <div style="flex:0;">
+        <button onclick="loadReport()">Показать</button>
+      </div>
+      <div style="flex:0;">
+        <button class="secondary" onclick="downloadCsv()">Скачать Excel (CSV)</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-tag="Результат">
+    <div class="toolbar">
+      <div id="summaryLine" class="hint"></div>
+    </div>
+    <div id="reportTable"><div class="empty-note">Выберите период и нажмите «Показать»</div></div>
+  </div>
+
+  <div class="card" data-tag="Графики работы по сотрудникам">
+    <div id="schedulesContainer"><div class="empty-note">Загрузка...</div></div>
+    <button onclick="saveAllSchedules()">Сохранить графики</button>
+    <div class="hint">Опоздания и ранний уход считаются по графику конкретного сотрудника. Если график не задан — по умолчанию 09:00–18:00, Пн–Пт, допуск 10 минут.</div>
+  </div>
+</div>
+
+<script>
+let PASSWORD = '';
+let employees = [];
+let schedulesData = {};
+let lastRows = [];
+const DAY_LABELS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+
+function login(){
+  PASSWORD = document.getElementById('passInput').value.trim();
+  if(!PASSWORD){ return; }
+  fetch('/api/admin?action=employees', { headers: { 'x-admin-password': PASSWORD } })
+    .then(r => r.json())
+    .then(data => {
+      if(data.error){
+        document.getElementById('loginError').textContent = data.error;
+        return;
+      }
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('mainScreen').style.display = 'block';
+      employees = data.employees || [];
+      populateEmployeeFilter();
+      const today = new Date().toISOString().slice(0,10);
+      const firstOfMonth = today.slice(0,8) + '01';
+      document.getElementById('fromDate').value = firstOfMonth;
+      document.getElementById('toDate').value = today;
+      loadSchedules();
+    })
+    .catch(() => { document.getElementById('loginError').textContent = 'Ошибка соединения'; });
+}
+
+function populateEmployeeFilter(){
+  const sel = document.getElementById('empFilter');
+  sel.innerHTML = '<option value="">Все сотрудники</option>' +
+    employees.map(e => `<option value="${e.chat_id}">${escapeHtml(e.name)}</option>`).join('');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadReport(){
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  const chatId = document.getElementById('empFilter').value;
+  if(!from || !to){ alert('Укажите обе даты'); return; }
+
+  const params = new URLSearchParams({ action: 'report', from, to });
+  if(chatId) params.set('chat_id', chatId);
+
+  const res = await fetch('/api/admin?' + params.toString(), { headers: { 'x-admin-password': PASSWORD } });
+  const data = await res.json();
+  if(data.error){ alert(data.error); return; }
+
+  lastRows = data.rows || [];
+  renderReport(lastRows);
+}
+
+function renderReport(rows){
+  const target = document.getElementById('reportTable');
+  const summary = document.getElementById('summaryLine');
+  if(!rows.length){
+    target.innerHTML = '<div class="empty-note">За этот период событий нет</div>';
+    summary.textContent = '';
+    return;
+  }
+  const totalLate = rows.filter(r => r.lateMinutes > 0).length;
+  const totalEarly = rows.filter(r => r.earlyMinutes > 0).length;
+  summary.textContent = `Всего дней: ${rows.length} · Опозданий: ${totalLate} · Ранних уходов: ${totalEarly}`;
+
+  let html = '<table><thead><tr><th>Дата</th><th>Сотрудник</th><th>Приход</th><th>Уход</th><th>По графику</th><th>Опоздание</th><th>Ранний уход</th><th>Отработано</th></tr></thead><tbody>';
+  for(const r of rows){
+    html += `<tr>
+      <td>${r.date}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${r.firstIn || '—'}</td>
+      <td>${r.lastOut || '—'}</td>
+      <td>${r.scheduledStart ? r.scheduledStart + '–' + r.scheduledEnd : '—'}</td>
+      <td class="${r.lateMinutes > 0 ? 'late' : 'ok'}">${r.lateMinutes > 0 ? r.lateMinutes + ' мин' : '—'}</td>
+      <td class="${r.earlyMinutes > 0 ? 'early' : 'ok'}">${r.earlyMinutes > 0 ? r.earlyMinutes + ' мин' : '—'}</td>
+      <td>${r.workedHours !== null ? r.workedHours + ' ч' : '—'}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  target.innerHTML = html;
+}
+
+function downloadCsv(){
+  if(!lastRows.length){ alert('Сначала нажмите «Показать»'); return; }
+  const header = ['Дата','Сотрудник','Приход','Уход','По графику','Опоздание (мин)','Ранний уход (мин)','Отработано (ч)'];
+  const lines = [header];
+  for(const r of lastRows){
+    lines.push([
+      r.date, r.name, r.firstIn || '', r.lastOut || '',
+      r.scheduledStart ? (r.scheduledStart + '-' + r.scheduledEnd) : '',
+      r.lateMinutes || 0, r.earlyMinutes || 0, r.workedHours !== null ? r.workedHours : ''
+    ]);
+  }
+  const csv = '\uFEFF' + lines.map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tabel_${document.getElementById('fromDate').value}_${document.getElementById('toDate').value}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function loadSchedules(){
+  const res = await fetch('/api/admin?action=schedules', { headers: { 'x-admin-password': PASSWORD } });
+  const data = await res.json();
+  schedulesData = {};
+  (data.schedules || []).forEach(s => schedulesData[s.chat_id] = s);
+  renderSchedules();
+}
+
+function renderSchedules(){
+  const container = document.getElementById('schedulesContainer');
+  if(!employees.length){
+    container.innerHTML = '<div class="empty-note">Пока нет ни одного зарегистрированного сотрудника</div>';
+    return;
+  }
+  container.innerHTML = employees.map(e => {
+    const s = schedulesData[e.chat_id] || { work_start:'09:00', work_end:'18:00', workdays:[1,2,3,4,5], grace_minutes:10 };
+    const daysHtml = DAY_LABELS.map((label, idx) => {
+      const active = (s.workdays || [1,2,3,4,5]).includes(idx);
+      return `<div class="day-toggle ${active ? 'active' : ''}" data-chat="${e.chat_id}" data-day="${idx}" onclick="toggleDay(this)">${label}</div>`;
+    }).join('');
+    return `
+      <div class="sched-row" data-chat-row="${e.chat_id}">
+        <div class="name">${escapeHtml(e.name)}</div>
+        <div>
+          <label>Начало</label>
+          <input type="text" class="sched-start" data-chat="${e.chat_id}" value="${s.work_start}" placeholder="09:00">
+        </div>
+        <div>
+          <label>Конец</label>
+          <input type="text" class="sched-end" data-chat="${e.chat_id}" value="${s.work_end}" placeholder="18:00">
+        </div>
+        <div>
+          <label>Допуск (мин)</label>
+          <input type="number" class="sched-grace" data-chat="${e.chat_id}" value="${s.grace_minutes ?? 10}">
+        </div>
+        <div>
+          <label>Рабочие дни</label>
+          <div class="days">${daysHtml}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleDay(el){
+  el.classList.toggle('active');
+}
+
+async function saveAllSchedules(){
+  for(const e of employees){
+    const row = document.querySelector(`[data-chat-row="${e.chat_id}"]`);
+    if(!row) continue;
+    const work_start = row.querySelector('.sched-start').value.trim();
+    const work_end = row.querySelector('.sched-end').value.trim();
+    const grace_minutes = parseInt(row.querySelector('.sched-grace').value) || 0;
+    const workdays = Array.from(row.querySelectorAll('.day-toggle.active')).map(d => parseInt(d.dataset.day));
+
+    await fetch('/api/admin?action=save-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+      body: JSON.stringify({ chat_id: e.chat_id, work_start, work_end, workdays, grace_minutes }),
+    });
+  }
+  alert('Графики сохранены');
+  loadSchedules();
+}
+</script>
+</body>
+</html>
