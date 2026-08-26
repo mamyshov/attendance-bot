@@ -92,6 +92,13 @@ async function startScanning(){
   statusEl.className = '';
   retryBtn.style.display = 'none';
 
+  if (typeof jsQR === 'undefined') {
+    statusEl.textContent = 'Не загрузился модуль распознавания QR (jsQR). Проверьте интернет-соединение или отключите блокировщик рекламы для этого сайта, затем обновите страницу.';
+    statusEl.className = 'err';
+    retryBtn.style.display = 'inline-block';
+    return;
+  }
+
   stopCamera();
 
   try {
@@ -147,20 +154,31 @@ async function switchCamera(){
 
 function tick(){
   if (!scanning) return;
-  if (video.readyState === video.HAVE_ENOUGH_DATA) {
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height, {
-      inversionAttempts: 'attemptBoth',
-    });
-    if (code && code.data) {
-      scanning = false;
-      stopCamera();
-      handleScan(code.data);
-      return;
+  try {
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: 'attemptBoth',
+      });
+      if (code && code.data) {
+        scanning = false;
+        stopCamera();
+        handleScan(code.data);
+        return;
+      } else {
+        statusEl.textContent = 'Сканирую...';
+        statusEl.className = '';
+      }
     }
+  } catch (err) {
+    statusEl.textContent = 'Ошибка сканирования: ' + err.message;
+    statusEl.className = 'err';
+    retryBtn.style.display = 'inline-block';
+    scanning = false;
+    return;
   }
   requestAnimationFrame(tick);
 }
