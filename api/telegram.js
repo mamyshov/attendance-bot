@@ -61,11 +61,16 @@ module.exports = async (req, res) => {
       if (!name) {
         await tg('sendMessage', { chat_id: chatId, text: 'Используйте так: /я Иванов Иван' });
       } else {
-        await supabase.from('employees').upsert({ chat_id: chatId, name, inside: false });
-        await tg('sendMessage', {
-          chat_id: chatId,
-          text: `Записал вас как «${name}». Теперь: \n\n${LIVE_LOCATION_HINT}`,
-        });
+        const { error } = await supabase.from('employees').upsert({ chat_id: chatId, name, inside: false });
+        if (error) {
+          console.error('UPSERT EMPLOYEE ERROR:', JSON.stringify(error));
+          await tg('sendMessage', { chat_id: chatId, text: 'Ошибка базы данных: ' + error.message });
+        } else {
+          await tg('sendMessage', {
+            chat_id: chatId,
+            text: `Записал вас как «${name}». Теперь: \n\n${LIVE_LOCATION_HINT}`,
+          });
+        }
       }
     } else if (text.startsWith('/zona')) {
       if (!ADMIN_IDS.includes(chatId)) {
@@ -126,16 +131,24 @@ module.exports = async (req, res) => {
         });
       }
     } else if (msg.location) {
-      const { data: emp } = await supabase
+      const { data: emp, error: empErr } = await supabase
         .from('employees')
         .select('*')
         .eq('chat_id', chatId)
         .maybeSingle();
 
-      if (!emp) {
+      if (empErr) {
+        console.error('SELECT EMPLOYEE ERROR:', JSON.stringify(empErr));
+        await tg('sendMessage', { chat_id: chatId, text: 'Ошибка базы данных (поиск сотрудника): ' + empErr.message });
+      } else if (!emp) {
         await tg('sendMessage', { chat_id: chatId, text: 'Сначала представьтесь: /я Иванов Иван' });
       } else {
-        const { data: office } = await supabase.from('office').select('*').eq('id', 1).maybeSingle();
+        const { data: office, error: officeErr } = await supabase.from('office').select('*').eq('id', 1).maybeSingle();
+        if (officeErr) {
+          console.error('SELECT OFFICE ERROR:', JSON.stringify(officeErr));
+          await tg('sendMessage', { chat_id: chatId, text: 'Ошибка базы данных (поиск зоны): ' + officeErr.message });
+          return res.status(200).send('OK');
+        }
 
         if (!office) {
           await tg('sendMessage', {
