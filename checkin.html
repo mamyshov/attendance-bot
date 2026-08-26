@@ -74,7 +74,9 @@ async function startScanning(){
   retryBtn.style.display = 'none';
 
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 1280 } },
+    });
     video.srcObject = stream;
     scanning = true;
     requestAnimationFrame(tick);
@@ -92,7 +94,9 @@ function tick(){
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const code = jsQR(imageData.data, imageData.width, imageData.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+      inversionAttempts: 'attemptBoth',
+    });
     if (code && code.data) {
       scanning = false;
       stopCamera();
