@@ -35,6 +35,27 @@ module.exports = async (req, res) => {
   const action = req.query.action;
 
   try {
+    if (action === 'get-qr') {
+      const { data, error } = await supabase.from('office').select('qr_secret').eq('id', 1).maybeSingle();
+      if (error) throw error;
+      res.status(200).json({ qr_secret: data ? data.qr_secret : null });
+      return;
+    }
+
+    if (action === 'save-qr' && req.method === 'POST') {
+      const { qr_secret } = req.body;
+      const { data: existing } = await supabase.from('office').select('id').eq('id', 1).maybeSingle();
+      if (existing) {
+        const { error } = await supabase.from('office').update({ qr_secret }).eq('id', 1);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('office').insert({ id: 1, qr_secret });
+        if (error) throw error;
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+
     if (action === 'employees') {
       const { data, error } = await supabase.from('employees').select('chat_id, name').order('name');
       if (error) throw error;
