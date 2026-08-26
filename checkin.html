@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Отметка по QR</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<style>
+  :root{
+    --paper:#DED2AE; --ink:#22241F; --ink-soft:#54544A;
+    --green:#33613F; --rust:#9B3B27; --card-bg:#F1E9D2;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; height:100%; background:var(--paper); color:var(--ink);
+    font-family:'Inter',sans-serif; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; text-align:center; padding:20px;
+  }
+  h1{font-size:18px; margin:0 0 6px;}
+  p.hint{font-size:13px; color:var(--ink-soft); margin:0 0 18px; max-width:320px;}
+  .scan-frame{
+    position:relative; width:min(80vw, 320px); aspect-ratio:1/1; border:3px solid var(--ink);
+    border-radius:12px; overflow:hidden; background:#000;
+  }
+  video{width:100%; height:100%; object-fit:cover;}
+  .corner{position:absolute; width:28px; height:28px; border-color:var(--green); border-style:solid;}
+  .tl{top:-3px; left:-3px; border-width:5px 0 0 5px;}
+  .tr{top:-3px; right:-3px; border-width:5px 5px 0 0;}
+  .bl{bottom:-3px; left:-3px; border-width:0 0 5px 5px;}
+  .br{bottom:-3px; right:-3px; border-width:0 5px 5px 0;}
+  #status{margin-top:18px; font-size:14px; min-height:20px;}
+  #status.ok{color:var(--green); font-weight:600;}
+  #status.err{color:var(--rust); font-weight:600;}
+  #retryBtn{
+    margin-top:14px; display:none; font-family:inherit; font-weight:600; font-size:14px;
+    background:var(--ink); color:var(--paper); border:none; padding:10px 18px; border-radius:8px; cursor:pointer;
+  }
+</style>
+</head>
+<body>
+  <h1>Отсканируйте QR у входа</h1>
+  <p class="hint">Наведите камеру на QR-код на двери офиса — отметка о приходе или уходе появится автоматически.</p>
+
+  <div class="scan-frame">
+    <video id="video" autoplay playsinline muted></video>
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+  </div>
+
+  <div id="status"></div>
+  <button id="retryBtn" onclick="startScanning()">Сканировать ещё раз</button>
+
+  <canvas id="canvas" style="display:none;"></canvas>
+
+<script>
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { tg.ready(); tg.expand(); }
+
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const statusEl = document.getElementById('status');
+const retryBtn = document.getElementById('retryBtn');
+
+let scanning = false;
+let stream = null;
+
+async function startScanning(){
+  statusEl.textContent = '';
+  statusEl.className = '';
+  retryBtn.style.display = 'none';
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    video.srcObject = stream;
+    scanning = true;
+    requestAnimationFrame(tick);
+  } catch (e) {
+    statusEl.textContent = 'Нет доступа к камере: ' + e.message;
+    statusEl.className = 'err';
+    retryBtn.style.display = 'inline-block';
+  }
+}
+
+function tick(){
+  if (!scanning) return;
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, imageData.width, imageData.height);
+    if (code && code.data) {
+      scanning = false;
+      stopCamera();
+      handleScan(code.data);
+      return;
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+function stopCamera(){
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+}
+
+async function handleScan(qrText){
+  statusEl.textContent = 'Проверяем...';
+  statusEl.className = '';
+  try {
+    const initData = tg ? tg.initData : '';
+    const res = await fetch('/api/checkin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, qr_text: qrText }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      statusEl.textContent = data.message;
+      statusEl.className = 'ok';
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+      setTimeout(() => { if (tg) tg.close(); }, 1800);
+    } else {
+      statusEl.textContent = data.message || 'Не удалось отметиться.';
+      statusEl.className = 'err';
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+      retryBtn.style.display = 'inline-block';
+    }
+  } catch (e) {
+    statusEl.textContent = 'Ошибка соединения. Попробуйте ещё раз.';
+    statusEl.className = 'err';
+    retryBtn.style.display = 'inline-block';
+  }
+}
+
+startScanning();
+</script>
+</body>
+</html>
