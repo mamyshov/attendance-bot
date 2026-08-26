@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Табельная — панель отдела кадров</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
   :root{
     --paper:#DED2AE; --paper-dark:#CBBC90; --ink:#22241F; --ink-soft:#54544A;
@@ -102,6 +103,23 @@
     <div id="reportTable"><div class="empty-note">Выберите период и нажмите «Показать»</div></div>
   </div>
 
+  <div class="card" data-tag="QR-код для входа">
+    <div class="filters">
+      <div style="flex:2;">
+        <label>Секретный код (в него превратится QR)</label>
+        <input type="text" id="qrSecretInput" placeholder="Например: office-front-door-7F2A9">
+      </div>
+      <div style="flex:0;">
+        <button onclick="generateRandomSecret()">Сгенерировать случайный</button>
+      </div>
+      <div style="flex:0;">
+        <button class="secondary" onclick="saveQrSecret()">Сохранить и обновить QR</button>
+      </div>
+    </div>
+    <div class="hint">Распечатайте QR-код ниже и повесьте у входа в офис. Сотрудники сканируют его через кнопку /checkin у бота — так фиксируется приход и уход.</div>
+    <div id="qrCodeContainer" style="margin-top:16px; text-align:center;"></div>
+  </div>
+
   <div class="card" data-tag="Графики работы по сотрудникам">
     <div id="schedulesContainer"><div class="empty-note">Загрузка...</div></div>
     <button onclick="saveAllSchedules()">Сохранить графики</button>
@@ -136,8 +154,53 @@ function login(){
       document.getElementById('fromDate').value = firstOfMonth;
       document.getElementById('toDate').value = today;
       loadSchedules();
+      loadQrSecret();
     })
     .catch(() => { document.getElementById('loginError').textContent = 'Ошибка соединения'; });
+}
+
+async function loadQrSecret(){
+  const res = await fetch('/api/admin?action=get-qr', { headers: { 'x-admin-password': PASSWORD } });
+  const data = await res.json();
+  if(data.qr_secret){
+    document.getElementById('qrSecretInput').value = data.qr_secret;
+    renderQrCode(data.qr_secret);
+  }
+}
+
+function generateRandomSecret(){
+  const random = 'office-' + Math.random().toString(36).slice(2, 10);
+  document.getElementById('qrSecretInput').value = random;
+}
+
+async function saveQrSecret(){
+  const secret = document.getElementById('qrSecretInput').value.trim();
+  if(!secret){ alert('Введите или сгенерируйте код'); return; }
+  const res = await fetch('/api/admin?action=save-qr', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ qr_secret: secret }),
+  });
+  const data = await res.json();
+  if(data.error){ alert(data.error); return; }
+  renderQrCode(secret);
+  alert('QR-код сохранён. Распечатайте его и повесьте у входа.');
+}
+
+function renderQrCode(secret){
+  const container = document.getElementById('qrCodeContainer');
+  container.innerHTML = '';
+  const box = document.createElement('div');
+  box.style.display = 'inline-block';
+  box.style.padding = '16px';
+  box.style.background = '#fff';
+  container.appendChild(box);
+  new QRCode(box, { text: secret, width: 220, height: 220 });
+  const label = document.createElement('div');
+  label.className = 'hint';
+  label.style.marginTop = '8px';
+  label.textContent = 'Распечатайте эту страницу (Ctrl+P) или сделайте скриншот этого кода.';
+  container.appendChild(label);
 }
 
 function populateEmployeeFilter(){
