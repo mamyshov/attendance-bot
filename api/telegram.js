@@ -30,7 +30,9 @@ function distanceMeters(lat1, lon1, lat2, lon2) {
 
 const LIVE_LOCATION_HINT =
   'Чтобы отметки прихода/ухода шли автоматически, включите в этом чате трансляцию геопозиции:\n' +
-  'Скрепка (📎) → Геопозиция → «Трансляция геопозиции» → выберите 1 или 8 часов.';
+  'Скрепка (📎) → Геопозиция → «Трансляция геопозиции» → выберите «Пока не отключу».\n\n' +
+  'Этот вариант лучше остальных (15 минут / 1 час) — он не закончится сам, пока вы вручную ' +
+  'не остановите трансляцию, поэтому весь рабочий день отметки будут идти автоматически.';
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -95,18 +97,24 @@ module.exports = async (req, res) => {
       if (!ADMIN_IDS.includes(chatId)) {
         await tg('sendMessage', { chat_id: chatId, text: 'Эта команда только для администратора.' });
       } else {
-        const startOfDay = new Date();
-        startOfDay.setHours(0, 0, 0, 0);
+        // Определяем "сегодня" по бишкекскому времени (UTC+6), а не по времени сервера
+        const bishkekNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bishkek' }));
+        const y = bishkekNow.getFullYear();
+        const m = bishkekNow.getMonth();
+        const d = bishkekNow.getDate();
+        // Полночь по Бишкеку = 18:00 UTC предыдущего дня (UTC+6)
+        const startOfDayUtc = new Date(Date.UTC(y, m, d, 0, 0, 0) - 6 * 60 * 60 * 1000);
         const { data, error } = await supabase
           .from('events')
           .select('*')
-          .gte('ts', startOfDay.toISOString())
+          .gte('ts', startOfDayUtc.toISOString())
           .order('ts', { ascending: false });
         if (error || !data || !data.length) {
           await tg('sendMessage', { chat_id: chatId, text: 'Сегодня событий пока нет.' });
         } else {
           const lines = data.map((e) => {
             const t = new Date(e.ts).toLocaleTimeString('ru-RU', {
+              timeZone: 'Asia/Bishkek',
               hour: '2-digit',
               minute: '2-digit',
             });
@@ -167,7 +175,7 @@ module.exports = async (req, res) => {
           if (nowInside && !emp.inside) {
             await supabase.from('employees').update({ inside: true }).eq('chat_id', chatId);
             await supabase.from('events').insert({ chat_id: chatId, name: emp.name, type: 'in' });
-            const t = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            const t = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
             await tg('sendMessage', { chat_id: chatId, text: `✅ Отмечен приход — ${t}` });
             for (const adminId of ADMIN_IDS) {
               await tg('sendMessage', { chat_id: adminId, text: `✅ ${emp.name} пришёл(а) — ${t}` });
@@ -175,7 +183,7 @@ module.exports = async (req, res) => {
           } else if (!nowInside && emp.inside) {
             await supabase.from('employees').update({ inside: false }).eq('chat_id', chatId);
             await supabase.from('events').insert({ chat_id: chatId, name: emp.name, type: 'out' });
-            const t = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            const t = new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bishkek' });
             await tg('sendMessage', { chat_id: chatId, text: `🚪 Отмечен уход — ${t}` });
             for (const adminId of ADMIN_IDS) {
               await tg('sendMessage', { chat_id: adminId, text: `🚪 ${emp.name} ушёл/ушла — ${t}` });
