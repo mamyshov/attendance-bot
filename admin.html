@@ -115,6 +115,7 @@ let employees = [];
 let schedulesData = {};
 let lastRows = [];
 const DAY_LABELS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+const WEEK_DISPLAY_ORDER = [1,2,3,4,5,6,0]; // Пн..Вс — порядок отображения кнопок
 
 function login(){
   PASSWORD = document.getElementById('passInput').value.trim();
@@ -232,7 +233,8 @@ function renderSchedules(){
   }
   container.innerHTML = employees.map(e => {
     const s = schedulesData[e.chat_id] || { work_start:'09:00', work_end:'18:00', workdays:[1,2,3,4,5], grace_minutes:10 };
-    const daysHtml = DAY_LABELS.map((label, idx) => {
+    const daysHtml = WEEK_DISPLAY_ORDER.map((idx) => {
+      const label = DAY_LABELS[idx];
       const active = (s.workdays || [1,2,3,4,5]).includes(idx);
       return `<div class="day-toggle ${active ? 'active' : ''}" data-chat="${e.chat_id}" data-day="${idx}" onclick="toggleDay(this)">${label}</div>`;
     }).join('');
