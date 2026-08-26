@@ -55,8 +55,19 @@ module.exports = async (req, res) => {
       await tg('sendMessage', {
         chat_id: chatId,
         text:
-          'Привет! Это табельный бот.\n\n1) Представьтесь: /я Иванов Иван\n\n2) ' +
-          LIVE_LOCATION_HINT,
+          'Привет! Это табельный бот.\n\n1) Представьтесь: /я Иванов Иван\n\n' +
+          '2) Выберите способ отметки прихода/ухода — можно один из двух, как удобнее:\n\n' +
+          '• Автоматически по геолокации:\n' + LIVE_LOCATION_HINT + '\n\n' +
+          '• Или сканировать QR-код на входе в офис: команда /checkin',
+      });
+    } else if (text.startsWith('/checkin')) {
+      const host = req.headers.host;
+      await tg('sendMessage', {
+        chat_id: chatId,
+        text: 'Нажмите кнопку ниже и наведите камеру на QR-код у входа в офис.',
+        reply_markup: JSON.stringify({
+          inline_keyboard: [[{ text: '📷 Отсканировать QR', web_app: { url: `https://${host}/checkin.html` } }]],
+        }),
       });
     } else if (text.startsWith('/я')) {
       const name = text.replace('/я', '').trim();
@@ -123,6 +134,78 @@ module.exports = async (req, res) => {
           await tg('sendMessage', { chat_id: chatId, text: lines.join('\n') });
         }
       }
+    } else if (text.startsWith('/export')) {
+      if (!ADMIN_IDS.includes(chatId)) {
+        await tg('sendMessage', { chat_id: chatId, text: 'Эта команда только для администратора.' });
+      } else {
+        const args = text.split(/\s+/).slice(1);
+        // Аргумент вида 2026-08 (год-месяц). Если не указан — берём текущий месяц по Бишкеку.
+        const bishkekNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Bishkek' }));
+        let year = bishkekNow.getFullYear();
+        let month = bishkekNow.getMonth(); // 0-11
+        let label = 'этот месяц';
+
+        if (args[0] === 'all') {
+          year = null;
+        } else if (args[0]) {
+          const match = args[0].match(/^(\d{4})-(\d{1,2})$/);
+          if (match) {
+            year = parseInt(match[1]);
+            month = parseInt(match[2]) - 1;
+          } else {
+            await tg('sendMessage', {
+              chat_id: chatId,
+              text: 'Формат: /export 2026-08 (год-месяц), или /export all — за всё время.',
+            });
+            res.status(200).send('OK');
+            return;
+          }
+        }
+
+        let query = supabase.from('events').select('*').order('ts', { ascending: false });
+        if (year !== null) {
+          const startUtc = new Date(Date.UTC(year, month, 1, 0, 0, 0) - 6 * 60 * 60 * 1000);
+          const endUtc = new Date(Date.UTC(year, month + 1, 1, 0, 0, 0) - 6 * 60 * 60 * 1000);
+          query = query.gte('ts', startUtc.toISOString()).lt('ts', endUtc.toISOString());
+          label = `${String(month + 1).padStart(2, '0')}.${year}`;
+        } else {
+          label = 'всё время';
+        }
+
+        const { data, error } = await query;
+        if (error) {
+          console.error('EXPORT ERROR:', JSON.stringify(error));
+          await tg('sendMessage', { chat_id: chatId, text: 'Ошибка базы данных: ' + error.message });
+        } else if (!data || !data.length) {
+          await tg('sendMessage', { chat_id: chatId, text: `Нет записей за ${label}.` });
+        } else {
+          const rows = [['Сотрудник', 'Событие', 'Дата и время (Бишкек)']];
+          for (const e of data) {
+            const dt = new Date(e.ts).toLocaleString('ru-RU', {
+              timeZone: 'Asia/Bishkek',
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            });
+            rows.push([e.name, e.type === 'in' ? 'Пришёл' : 'Ушёл', dt]);
+          }
+          const csv = '\uFEFF' + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+
+          const form = new FormData();
+          form.append('chat_id', String(chatId));
+          form.append(
+            'document',
+            new Blob([csv], { type: 'text/csv' }),
+            `attendance_${label.replace(/\./g, '-')}.csv`
+          );
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`, {
+            method: 'POST',
+            body: form,
+          });
+        }
+      }
     } else if (text.startsWith('/help')) {
       if (ADMIN_IDS.includes(chatId)) {
         await tg('sendMessage', {
@@ -130,12 +213,15 @@ module.exports = async (req, res) => {
           text:
             'Команды администратора:\n' +
             '/zona <широта> <долгота> <радиус_м> — задать зону офиса\n' +
-            '/segodnya — журнал за сегодня',
+            '/segodnya — журнал за сегодня\n' +
+            '/export — выгрузить CSV за текущий месяц\n' +
+            '/export 2026-08 — выгрузить CSV за конкретный месяц\n' +
+            '/export all — выгрузить CSV за всё время',
         });
       } else {
         await tg('sendMessage', {
           chat_id: chatId,
-          text: '/я Имя Фамилия — представиться, затем включите трансляцию геопозиции.',
+          text: '/я Имя Фамилия — представиться.\nЗатем: включите трансляцию геопозиции ИЛИ используйте /checkin для отметки по QR-коду.',
         });
       }
     } else if (msg.location) {
