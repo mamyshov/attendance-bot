@@ -105,15 +105,15 @@
 
   <div class="card" data-tag="QR-код для входа">
     <div class="filters">
-      <div style="flex:2;">
+      <div style="flex:2; min-width:220px;">
         <label>Секретный код (в него превратится QR)</label>
         <input type="text" id="qrSecretInput" placeholder="Например: office-front-door-7F2A9">
       </div>
-      <div style="flex:0;">
-        <button onclick="generateRandomSecret()">Сгенерировать случайный</button>
+      <div style="flex:0 0 auto;">
+        <button class="secondary" onclick="generateRandomSecret()" style="white-space:nowrap;">Сгенерировать случайный</button>
       </div>
-      <div style="flex:0;">
-        <button class="secondary" onclick="saveQrSecret()">Сохранить и обновить QR</button>
+      <div style="flex:0 0 auto;">
+        <button onclick="saveQrSecret()" style="white-space:nowrap;">Сохранить и обновить QR</button>
       </div>
     </div>
     <div class="hint">Распечатайте QR-код ниже и повесьте у входа в офис. Сотрудники сканируют его через кнопку /checkin у бота — так фиксируется приход и уход.</div>
