@@ -367,7 +367,7 @@ function renderReport(rows){
   let html = '<table><thead><tr><th>Сотрудник</th><th>Начало смены</th><th>Конец смены</th><th>Тип</th><th>По графику</th><th>Опоздание</th><th>Ранний уход</th><th>Отработано</th></tr></thead><tbody>';
   for(const r of rows){
     html += `<tr>
-      <td>${escapeHtml(r.name)}</td>
+      <td>${escapeHtml(r.name)}${r.isDeleted ? ' <span style="color:var(--text-soft); font-size:12px;">(удалён)</span>' : ''}</td>
       <td>${r.shiftStart}</td>
       <td>${r.shiftEnd === 'ещё на месте' ? '<b>ещё на месте</b>' : r.shiftEnd}</td>
       <td>${r.scheduleLabel}</td>
@@ -387,7 +387,7 @@ function downloadCsv(){
   const lines = [header];
   for(const r of lastRows){
     lines.push([
-      r.name, r.shiftStart, r.shiftEnd, r.scheduleLabel,
+      r.name + (r.isDeleted ? ' (удалён)' : ''), r.shiftStart, r.shiftEnd, r.scheduleLabel,
       r.scheduledStart ? (r.scheduledStart + '-' + r.scheduledEnd) : '',
       r.lateMinutes || 0, r.earlyMinutes || 0, r.workedHours !== null ? r.workedHours : ''
     ]);
