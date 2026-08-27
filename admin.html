@@ -6,8 +6,6 @@
 <title>Табельная — панель отдела кадров</title>
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
   :root{
     --paper:#DED2AE; --paper-dark:#CBBC90; --ink:#22241F; --ink-soft:#54544A;
@@ -105,24 +103,6 @@
     <div id="reportTable"><div class="empty-note">Выберите период и нажмите «Показать»</div></div>
   </div>
 
-  <div class="card" data-tag="Маршрут за день">
-    <div class="filters">
-      <div>
-        <label>Сотрудник</label>
-        <select id="routeEmpFilter"></select>
-      </div>
-      <div>
-        <label>Дата</label>
-        <input type="date" id="routeDate">
-      </div>
-      <div style="flex:0;">
-        <button onclick="loadRoute()">Показать маршрут</button>
-      </div>
-    </div>
-    <div id="routeMap" style="height:360px; margin-top:14px; border:2px solid var(--ink); display:none;"></div>
-    <div id="routeEmpty" class="empty-note">Выберите сотрудника и дату</div>
-  </div>
-
   <div class="card" data-tag="QR-код для входа">
     <div class="filters">
       <div style="flex:2; min-width:220px;">
@@ -169,12 +149,10 @@ function login(){
       document.getElementById('mainScreen').style.display = 'block';
       employees = data.employees || [];
       populateEmployeeFilter();
-      populateRouteEmployeeFilter();
       const today = new Date().toISOString().slice(0,10);
       const firstOfMonth = today.slice(0,8) + '01';
       document.getElementById('fromDate').value = firstOfMonth;
       document.getElementById('toDate').value = today;
-      document.getElementById('routeDate').value = today;
       loadSchedules();
       loadQrSecret();
     })
@@ -229,58 +207,6 @@ function populateEmployeeFilter(){
   const sel = document.getElementById('empFilter');
   sel.innerHTML = '<option value="">Все сотрудники</option>' +
     employees.map(e => `<option value="${e.chat_id}">${escapeHtml(e.name)}</option>`).join('');
-}
-
-function populateRouteEmployeeFilter(){
-  const sel = document.getElementById('routeEmpFilter');
-  sel.innerHTML = employees.map(e => `<option value="${e.chat_id}">${escapeHtml(e.name)}</option>`).join('');
-}
-
-let routeMapInstance = null;
-
-async function loadRoute(){
-  const chatId = document.getElementById('routeEmpFilter').value;
-  const date = document.getElementById('routeDate').value;
-  if(!chatId || !date){ alert('Выберите сотрудника и дату'); return; }
-
-  const params = new URLSearchParams({ action: 'route', date, chat_id: chatId });
-  const res = await fetch('/api/admin?' + params.toString(), { headers: { 'x-admin-password': PASSWORD } });
-  const data = await res.json();
-  if(data.error){ alert(data.error); return; }
-
-  const points = data.points || [];
-  const mapEl = document.getElementById('routeMap');
-  const emptyEl = document.getElementById('routeEmpty');
-
-  if(!points.length){
-    mapEl.style.display = 'none';
-    emptyEl.style.display = 'block';
-    emptyEl.textContent = 'За этот день нет данных о перемещениях (трансляция геопозиции не была включена)';
-    return;
-  }
-
-  emptyEl.style.display = 'none';
-  mapEl.style.display = 'block';
-
-  if(routeMapInstance){
-    routeMapInstance.remove();
-    routeMapInstance = null;
-  }
-
-  routeMapInstance = L.map('routeMap');
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors',
-    maxZoom: 19,
-  }).addTo(routeMapInstance);
-
-  const latlngs = points.map(p => [p.lat, p.lon]);
-  const polyline = L.polyline(latlngs, { color: '#33613F', weight: 4 }).addTo(routeMapInstance);
-  routeMapInstance.fitBounds(polyline.getBounds(), { padding: [24, 24] });
-
-  L.marker(latlngs[0]).addTo(routeMapInstance)
-    .bindPopup(`Начало: ${points[0].time}`);
-  L.marker(latlngs[latlngs.length - 1]).addTo(routeMapInstance)
-    .bindPopup(`Последняя точка: ${points[points.length - 1].time}`);
 }
 
 function escapeHtml(s){
