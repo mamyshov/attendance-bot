@@ -237,6 +237,13 @@ module.exports = async (req, res) => {
       } else if (!emp) {
         await tg('sendMessage', { chat_id: chatId, text: 'Сначала представьтесь: /я Иванов Иван' });
       } else {
+        // Сохраняем каждую точку маршрута (для показа истории перемещений в HR-панели)
+        await supabase.from('locations').insert({
+          chat_id: chatId,
+          lat: msg.location.latitude,
+          lon: msg.location.longitude,
+        });
+
         const { data: office, error: officeErr } = await supabase.from('office').select('*').eq('id', 1).maybeSingle();
         if (officeErr) {
           console.error('SELECT OFFICE ERROR:', JSON.stringify(officeErr));
