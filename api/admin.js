@@ -56,6 +56,99 @@ module.exports = async (req, res) => {
       return;
     }
 
+    if (action === 'offices') {
+      const { data, error } = await supabase.from('offices').select('*').order('name');
+      if (error) throw error;
+      res.status(200).json({ offices: data });
+      return;
+    }
+
+    if (action === 'save-office' && req.method === 'POST') {
+      const { id, name, lat, lon, radius } = req.body;
+      if (id) {
+        const { error } = await supabase.from('offices').update({ name, lat, lon, radius }).eq('id', id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('offices').insert({ name, lat, lon, radius });
+        if (error) throw error;
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === 'delete-office' && req.method === 'POST') {
+      const { id } = req.body;
+      const { error } = await supabase.from('offices').delete().eq('id', id);
+      if (error) throw error;
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === 'pending-devices') {
+      const { data, error } = await supabase
+        .from('employees')
+        .select('chat_id, name, pending_type, requested_at, office_id')
+        .eq('device_pending', true)
+        .order('requested_at', { ascending: true });
+      if (error) throw error;
+      res.status(200).json({ pending: data });
+      return;
+    }
+
+    if (action === 'approve-device' && req.method === 'POST') {
+      const { chat_id, office_id } = req.body;
+      const { data: emp, error: findErr } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('chat_id', chat_id)
+        .maybeSingle();
+      if (findErr) throw findErr;
+      if (!emp) {
+        res.status(400).json({ error: 'Заявка не найдена' });
+        return;
+      }
+
+      const update = { device_pending: false, pending_type: null, requested_at: null, office_id };
+      if (emp.pending_type === 'relink' && emp.pending_device_token) {
+        update.device_token = emp.pending_device_token;
+        update.pending_device_token = null;
+      }
+
+      const { error } = await supabase.from('employees').update(update).eq('chat_id', chat_id);
+      if (error) throw error;
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === 'reject-device' && req.method === 'POST') {
+      const { chat_id } = req.body;
+      const { data: emp, error: findErr } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('chat_id', chat_id)
+        .maybeSingle();
+      if (findErr) throw findErr;
+      if (!emp) {
+        res.status(200).json({ ok: true });
+        return;
+      }
+
+      if (emp.pending_type === 'register') {
+        // Это была первая заявка без подтверждённого устройства — просто удаляем запись
+        const { error } = await supabase.from('employees').delete().eq('chat_id', chat_id);
+        if (error) throw error;
+      } else {
+        // Перепривязка отклонена — оставляем старое устройство как было
+        const { error } = await supabase
+          .from('employees')
+          .update({ device_pending: false, pending_type: null, pending_device_token: null, requested_at: null })
+          .eq('chat_id', chat_id);
+        if (error) throw error;
+      }
+      res.status(200).json({ ok: true });
+      return;
+    }
+
     if (action === 'employees') {
       const { data, error } = await supabase.from('employees').select('chat_id, name').order('name');
       if (error) throw error;
@@ -71,13 +164,14 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'save-schedule' && req.method === 'POST') {
-      const { chat_id, work_start, work_end, workdays, grace_minutes } = req.body;
+      const { chat_id, work_start, work_end, workdays, grace_minutes, schedule_type } = req.body;
       const { error } = await supabase.from('schedules').upsert({
         chat_id,
         work_start,
         work_end,
         workdays,
         grace_minutes,
+        schedule_type: schedule_type || 'fixed',
       });
       if (error) throw error;
       res.status(200).json({ ok: true });
@@ -95,11 +189,16 @@ module.exports = async (req, res) => {
       const startUtc = bishkekDayStartUtc(fy, fm - 1, fd);
       const endUtc = new Date(bishkekDayStartUtc(ty, tm - 1, td).getTime() + 24 * 60 * 60 * 1000);
 
+      // Берём события с запасом в 3 дня до и после диапазона — чтобы правильно "собрать" смены,
+      // которые начались до начала диапазона или ещё не закончились (сутки, ночные смены).
+      const bufferStart = new Date(startUtc.getTime() - 3 * 24 * 60 * 60 * 1000);
+      const bufferEnd = new Date(endUtc.getTime() + 3 * 24 * 60 * 60 * 1000);
+
       let query = supabase
         .from('events')
         .select('*')
-        .gte('ts', startUtc.toISOString())
-        .lt('ts', endUtc.toISOString())
+        .gte('ts', bufferStart.toISOString())
+        .lt('ts', bufferEnd.toISOString())
         .order('ts', { ascending: true });
       if (chat_id) query = query.eq('chat_id', chat_id);
 
@@ -110,77 +209,48 @@ module.exports = async (req, res) => {
       const scheduleByChatId = {};
       (schedules || []).forEach((s) => (scheduleByChatId[s.chat_id] = s));
 
-      // Группируем события по (chat_id, дата по Бишкеку)
-      const groups = {};
+      // Группируем события по сотруднику, затем "склеиваем" в смены: приход -> следующий уход
+      const byEmployee = {};
       for (const e of events) {
-        const bDate = toBishkekParts(new Date(e.ts));
-        const dateKey = `${bDate.getFullYear()}-${String(bDate.getMonth() + 1).padStart(2, '0')}-${String(
-          bDate.getDate()
-        ).padStart(2, '0')}`;
-        const key = `${e.chat_id}__${dateKey}`;
-        if (!groups[key]) {
-          groups[key] = { chat_id: e.chat_id, name: e.name, date: dateKey, weekday: bDate.getDay(), events: [] };
-        }
-        groups[key].events.push(e);
+        if (!byEmployee[e.chat_id]) byEmployee[e.chat_id] = { name: e.name, events: [] };
+        byEmployee[e.chat_id].events.push(e);
       }
 
-      const rows = Object.values(groups).map((g) => {
-        const ins = g.events.filter((e) => e.type === 'in').map((e) => new Date(e.ts));
-        const outs = g.events.filter((e) => e.type === 'out').map((e) => new Date(e.ts));
-        const firstIn = ins.length ? new Date(Math.min(...ins.map((d) => d.getTime()))) : null;
-        const lastOut = outs.length ? new Date(Math.max(...outs.map((d) => d.getTime()))) : null;
+      const rows = [];
+      for (const [empChatId, emp] of Object.entries(byEmployee)) {
+        const sched = scheduleByChatId[empChatId];
+        const isFixed = sched && sched.schedule_type !== 'flexible';
 
-        const sched = scheduleByChatId[g.chat_id];
-        let lateMinutes = 0;
-        let earlyMinutes = 0;
-        let scheduledStartStr = '';
-        let scheduledEndStr = '';
-
-        if (sched && (sched.workdays || [1, 2, 3, 4, 5]).includes(g.weekday)) {
-          const { h: sh, m: sm } = parseHHMM(sched.work_start);
-          const { h: eh, m: em } = parseHHMM(sched.work_end);
-          scheduledStartStr = sched.work_start;
-          scheduledEndStr = sched.work_end;
-          const grace = sched.grace_minutes ?? 10;
-
-          if (firstIn) {
-            const bIn = toBishkekParts(firstIn);
-            const scheduledStartMinutes = sh * 60 + sm + grace;
-            const actualMinutes = bIn.getHours() * 60 + bIn.getMinutes();
-            lateMinutes = Math.max(0, actualMinutes - scheduledStartMinutes);
-          }
-          if (lastOut) {
-            const bOut = toBishkekParts(lastOut);
-            const scheduledEndMinutes = eh * 60 + em;
-            const actualMinutes = bOut.getHours() * 60 + bOut.getMinutes();
-            earlyMinutes = Math.max(0, scheduledEndMinutes - actualMinutes);
+        let openIn = null;
+        for (const e of emp.events) {
+          if (e.type === 'in') {
+            openIn = new Date(e.ts);
+          } else if (e.type === 'out') {
+            const outTs = new Date(e.ts);
+            if (openIn) {
+              rows.push(buildShiftRow(empChatId, emp.name, openIn, outTs, sched, isFixed));
+              openIn = null;
+            }
+            // "уход" без предшествующего "прихода" в пределах буфера — пропускаем (обрезано историей)
           }
         }
+        if (openIn) {
+          // Смена ещё не закончилась (сотрудник до сих пор на месте на момент запроса)
+          rows.push(buildShiftRow(empChatId, emp.name, openIn, null, sched, isFixed));
+        }
+      }
 
-        const workedHours =
-          firstIn && lastOut ? Math.round(((lastOut - firstIn) / 3600000) * 100) / 100 : null;
-
-        return {
-          date: g.date,
-          name: g.name,
-          chat_id: g.chat_id,
-          firstIn: firstIn
-            ? firstIn.toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' })
-            : '',
-          lastOut: lastOut
-            ? lastOut.toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' })
-            : '',
-          scheduledStart: scheduledStartStr,
-          scheduledEnd: scheduledEndStr,
-          lateMinutes,
-          earlyMinutes,
-          workedHours,
-        };
+      // Оставляем только смены, которые действительно пересекаются с запрошенным диапазоном дат
+      const filtered = rows.filter((r) => {
+        const shiftStart = r._inRaw;
+        const shiftEnd = r._outRaw || bufferEnd;
+        return shiftStart < endUtc && shiftEnd >= startUtc;
       });
 
-      rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.name.localeCompare(b.name)));
+      filtered.sort((a, b) => b._inRaw - a._inRaw);
+      filtered.forEach((r) => { delete r._inRaw; delete r._outRaw; });
 
-      res.status(200).json({ rows });
+      res.status(200).json({ rows: filtered });
       return;
     }
 
@@ -190,3 +260,62 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: String(e.message || e) });
   }
 };
+
+function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed) {
+  const fmtDateTime = (d) =>
+    d.toLocaleString('ru-RU', {
+      timeZone: 'Asia/Bishkek',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+
+  let lateMinutes = 0;
+  let earlyMinutes = 0;
+  let scheduledStartStr = '';
+  let scheduledEndStr = '';
+  let scheduleLabel = sched ? (isFixed ? 'фиксированный' : 'гибкий') : '—';
+
+  if (isFixed && sched) {
+    const bIn = toBishkekParts(inTs);
+    const weekday = bIn.getDay();
+    if ((sched.workdays || [1, 2, 3, 4, 5]).includes(weekday)) {
+      const { h: sh, m: sm } = parseHHMM(sched.work_start);
+      scheduledStartStr = sched.work_start;
+      scheduledEndStr = sched.work_end;
+      const grace = sched.grace_minutes ?? 10;
+      const scheduledStartMinutes = sh * 60 + sm + grace;
+      const actualMinutes = bIn.getHours() * 60 + bIn.getMinutes();
+      lateMinutes = Math.max(0, actualMinutes - scheduledStartMinutes);
+
+      if (outTs) {
+        const { h: eh, m: em } = parseHHMM(sched.work_end);
+        const bOut = toBishkekParts(outTs);
+        const scheduledEndMinutes = eh * 60 + em;
+        const actualOutMinutes = bOut.getHours() * 60 + bOut.getMinutes();
+        // ранний уход считаем, только если уход в тот же день, что и приход (иначе это не "ранний уход", а просто долгая смена)
+        if (bOut.getDate() === bIn.getDate() && bOut.getMonth() === bIn.getMonth()) {
+          earlyMinutes = Math.max(0, scheduledEndMinutes - actualOutMinutes);
+        }
+      }
+    }
+  }
+
+  const workedHours = outTs ? Math.round(((outTs - inTs) / 3600000) * 100) / 100 : null;
+
+  return {
+    chat_id: chatId,
+    name,
+    scheduleLabel,
+    shiftStart: fmtDateTime(inTs),
+    shiftEnd: outTs ? fmtDateTime(outTs) : 'ещё на месте',
+    scheduledStart: scheduledStartStr,
+    scheduledEnd: scheduledEndStr,
+    lateMinutes,
+    earlyMinutes,
+    workedHours,
+    _inRaw: inTs,
+    _outRaw: outTs,
+  };
+}
