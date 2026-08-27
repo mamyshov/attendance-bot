@@ -258,34 +258,48 @@ function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed) {
       minute: '2-digit',
     });
 
+  const CALLOUT_TOLERANCE_MIN = 4 * 60; // 4 часа — за пределами этого окна считаем смену внеплановым вызовом, а не опозданием
+
   let lateMinutes = 0;
   let earlyMinutes = 0;
   let scheduledStartStr = '';
   let scheduledEndStr = '';
   let scheduleLabel = sched ? (isFixed ? 'фиксированный' : 'гибкий') : '—';
+  let isCallout = false;
 
   if (isFixed && sched) {
     const bIn = toBishkekParts(inTs);
     const weekday = bIn.getDay();
-    if ((sched.workdays || [1, 2, 3, 4, 5]).includes(weekday)) {
-      const { h: sh, m: sm } = parseHHMM(sched.work_start);
+    const { h: sh, m: sm } = parseHHMM(sched.work_start);
+    const { h: eh, m: em } = parseHHMM(sched.work_end);
+    const scheduledStartMinutes = sh * 60 + sm;
+    const scheduledEndMinutes = eh * 60 + em;
+    const actualInMinutes = bIn.getHours() * 60 + bIn.getMinutes();
+
+    // Смена вне обычных рабочих дней ИЛИ начата сильно за пределами обычного окна (например, ночной вызов) —
+    // считаем внеплановой: часы считаем как обычно, но опоздание/ранний уход не начисляем.
+    const isWorkday = (sched.workdays || [1, 2, 3, 4, 5]).includes(weekday);
+    const withinWindow =
+      actualInMinutes >= scheduledStartMinutes - CALLOUT_TOLERANCE_MIN &&
+      actualInMinutes <= scheduledEndMinutes + CALLOUT_TOLERANCE_MIN;
+
+    if (isWorkday && withinWindow) {
       scheduledStartStr = sched.work_start;
       scheduledEndStr = sched.work_end;
       const grace = sched.grace_minutes ?? 10;
-      const scheduledStartMinutes = sh * 60 + sm + grace;
-      const actualMinutes = bIn.getHours() * 60 + bIn.getMinutes();
-      lateMinutes = Math.max(0, actualMinutes - scheduledStartMinutes);
+      lateMinutes = Math.max(0, actualInMinutes - (scheduledStartMinutes + grace));
 
       if (outTs) {
-        const { h: eh, m: em } = parseHHMM(sched.work_end);
         const bOut = toBishkekParts(outTs);
-        const scheduledEndMinutes = eh * 60 + em;
         const actualOutMinutes = bOut.getHours() * 60 + bOut.getMinutes();
         // ранний уход считаем, только если уход в тот же день, что и приход (иначе это не "ранний уход", а просто долгая смена)
         if (bOut.getDate() === bIn.getDate() && bOut.getMonth() === bIn.getMonth()) {
           earlyMinutes = Math.max(0, scheduledEndMinutes - actualOutMinutes);
         }
       }
+    } else {
+      isCallout = true;
+      scheduleLabel = 'внеплановый вызов';
     }
   }
 
