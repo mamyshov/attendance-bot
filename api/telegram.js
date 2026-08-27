@@ -56,9 +56,26 @@ module.exports = async (req, res) => {
         chat_id: chatId,
         text:
           'Привет! Это табельный бот.\n\n1) Представьтесь: /я Иванов Иван\n\n' +
-          '2) Выберите способ отметки прихода/ухода — можно один из двух, как удобнее:\n\n' +
-          '• Автоматически по геолокации:\n' + LIVE_LOCATION_HINT + '\n\n' +
-          '• Или сканировать QR-код на входе в офис: команда /checkin',
+          '2) Отмечайтесь одним из способов:\n\n' +
+          '• Проще всего — кнопка «📍 Отметиться» внизу экрана. Нажимаете её, когда пришли, и ещё раз, когда уходите. ' +
+          'Никаких особых разрешений не нужно.\n\n' +
+          '• Либо полностью автоматически по геолокации:\n' + LIVE_LOCATION_HINT,
+        reply_markup: JSON.stringify({
+          keyboard: [[{ text: '📍 Отметиться', request_location: true }]],
+          resize_keyboard: true,
+          is_persistent: true,
+        }),
+      });
+    } else if (text.startsWith('/presence')) {
+      const host = req.headers.host;
+      await tg('sendMessage', {
+        chat_id: chatId,
+        text:
+          'Нажмите кнопку ниже, затем «Разрешить геолокацию и начать» на открывшейся странице. ' +
+          'Оставьте страницу открытой на экране, пока вы на работе — приход и уход зафиксируются автоматически.',
+        reply_markup: JSON.stringify({
+          inline_keyboard: [[{ text: '📍 Открыть автоматическую отметку', web_app: { url: `https://${host}/presence.html` } }]],
+        }),
       });
     } else if (text.startsWith('/checkin')) {
       const host = req.headers.host;
@@ -81,7 +98,15 @@ module.exports = async (req, res) => {
         } else {
           await tg('sendMessage', {
             chat_id: chatId,
-            text: `Записал вас как «${name}». Теперь: \n\n${LIVE_LOCATION_HINT}`,
+            text:
+              `Записал вас как «${name}».\n\n` +
+              'Проще всего отмечаться кнопкой «📍 Отметиться» внизу экрана — нажимайте её при приходе и уходе.\n\n' +
+              `Либо можно полностью автоматически:\n${LIVE_LOCATION_HINT}`,
+            reply_markup: JSON.stringify({
+              keyboard: [[{ text: '📍 Отметиться', request_location: true }]],
+              resize_keyboard: true,
+              is_persistent: true,
+            }),
           });
         }
       }
@@ -221,7 +246,7 @@ module.exports = async (req, res) => {
       } else {
         await tg('sendMessage', {
           chat_id: chatId,
-          text: '/я Имя Фамилия — представиться.\nЗатем: включите трансляцию геопозиции ИЛИ используйте /checkin для отметки по QR-коду.',
+          text: '/я Имя Фамилия — представиться.\nСпособы отметки:\n• Кнопка «📍 Отметиться» внизу экрана\n• /presence — автоматически, пока страница открыта\n• Трансляция геопозиции — полностью автоматически в фоне\n• /checkin — по QR-коду',
         });
       }
     } else if (msg.location) {
@@ -237,13 +262,6 @@ module.exports = async (req, res) => {
       } else if (!emp) {
         await tg('sendMessage', { chat_id: chatId, text: 'Сначала представьтесь: /я Иванов Иван' });
       } else {
-        // Сохраняем каждую точку маршрута (для показа истории перемещений в HR-панели)
-        await supabase.from('locations').insert({
-          chat_id: chatId,
-          lat: msg.location.latitude,
-          lon: msg.location.longitude,
-        });
-
         const { data: office, error: officeErr } = await supabase.from('office').select('*').eq('id', 1).maybeSingle();
         if (officeErr) {
           console.error('SELECT OFFICE ERROR:', JSON.stringify(officeErr));
@@ -257,6 +275,7 @@ module.exports = async (req, res) => {
             text: 'Зона офиса ещё не настроена администратором.',
           });
         } else {
+          const isOneTapShare = !msg.location.live_period; // разовое нажатие кнопки, а не постоянная трансляция
           const dist = distanceMeters(
             office.lat,
             office.lon,
@@ -281,8 +300,18 @@ module.exports = async (req, res) => {
             for (const adminId of ADMIN_IDS) {
               await tg('sendMessage', { chat_id: adminId, text: `🚪 ${emp.name} ушёл/ушла — ${t}` });
             }
+          } else if (isOneTapShare) {
+            // Разовое нажатие кнопки, но статус не поменялся — объясняем, почему
+            if (nowInside && emp.inside) {
+              await tg('sendMessage', { chat_id: chatId, text: 'Вы уже отмечены как «на месте» — приход уже зафиксирован ранее.' });
+            } else if (!nowInside && !emp.inside) {
+              await tg('sendMessage', {
+                chat_id: chatId,
+                text: `Вы вне зоны офиса (примерно ${Math.round(dist)} м от границы) — отметка не засчитана.`,
+              });
+            }
           }
-          // если статус не поменялся - молчим
+          // если это непрерывная трансляция и статус не поменялся - молчим, чтобы не спамить
         }
       }
     }
