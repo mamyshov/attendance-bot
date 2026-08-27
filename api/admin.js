@@ -56,6 +56,35 @@ module.exports = async (req, res) => {
       return;
     }
 
+    if (action === 'route') {
+      const { date, chat_id } = req.query;
+      if (!date || !chat_id) {
+        res.status(400).json({ error: 'Нужны параметры date (YYYY-MM-DD) и chat_id' });
+        return;
+      }
+      const [y, m, d] = date.split('-').map(Number);
+      const startUtc = bishkekDayStartUtc(y, m - 1, d);
+      const endUtc = new Date(startUtc.getTime() + 24 * 60 * 60 * 1000);
+
+      const { data, error } = await supabase
+        .from('locations')
+        .select('lat, lon, ts')
+        .eq('chat_id', chat_id)
+        .gte('ts', startUtc.toISOString())
+        .lt('ts', endUtc.toISOString())
+        .order('ts', { ascending: true });
+      if (error) throw error;
+
+      const points = (data || []).map((p) => ({
+        lat: p.lat,
+        lon: p.lon,
+        time: new Date(p.ts).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      }));
+
+      res.status(200).json({ points });
+      return;
+    }
+
     if (action === 'employees') {
       const { data, error } = await supabase.from('employees').select('chat_id, name').order('name');
       if (error) throw error;
