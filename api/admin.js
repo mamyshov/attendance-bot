@@ -193,6 +193,8 @@ module.exports = async (req, res) => {
       if (error) throw error;
 
       const { data: schedules } = await supabase.from('schedules').select('*');
+      const { data: existingEmployees } = await supabase.from('employees').select('chat_id');
+      const existingChatIds = new Set((existingEmployees || []).map((e) => String(e.chat_id)));
       const scheduleByChatId = {};
       (schedules || []).forEach((s) => (scheduleByChatId[s.chat_id] = s));
 
@@ -219,7 +221,7 @@ module.exports = async (req, res) => {
               const dateKey = bishkekDateKey(openIn);
               shiftCountByDate[dateKey] = (shiftCountByDate[dateKey] || 0) + 1;
               const isAdditional = shiftCountByDate[dateKey] > 1;
-              rows.push(buildShiftRow(empChatId, emp.name, openIn, outTs, sched, isFixed, isAdditional));
+              rows.push(buildShiftRow(empChatId, emp.name, openIn, outTs, sched, isFixed, isAdditional, !existingChatIds.has(String(empChatId))));
               openIn = null;
             }
             // "уход" без предшествующего "прихода" в пределах буфера — пропускаем (обрезано историей)
@@ -230,7 +232,7 @@ module.exports = async (req, res) => {
           const dateKey = bishkekDateKey(openIn);
           shiftCountByDate[dateKey] = (shiftCountByDate[dateKey] || 0) + 1;
           const isAdditional = shiftCountByDate[dateKey] > 1;
-          rows.push(buildShiftRow(empChatId, emp.name, openIn, null, sched, isFixed, isAdditional));
+          rows.push(buildShiftRow(empChatId, emp.name, openIn, null, sched, isFixed, isAdditional, !existingChatIds.has(String(empChatId))));
         }
       }
 
@@ -260,7 +262,7 @@ function bishkekDateKey(date) {
   return `${b.getFullYear()}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
 }
 
-function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional) {
+function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, isDeleted) {
   const fmtDateTime = (d) =>
     d.toLocaleString('ru-RU', {
       timeZone: 'Asia/Bishkek',
@@ -325,6 +327,7 @@ function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional) 
   return {
     chat_id: chatId,
     name,
+    isDeleted: !!isDeleted,
     scheduleLabel,
     shiftStart: fmtDateTime(inTs),
     shiftEnd: outTs ? fmtDateTime(outTs) : 'ещё на месте',
