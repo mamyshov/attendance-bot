@@ -145,7 +145,7 @@
   <div class="card" data-tag="Графики работы по сотрудникам">
     <div id="schedulesContainer"><div class="empty-note">Загрузка...</div></div>
     <button onclick="saveAllSchedules()">Сохранить графики</button>
-    <div class="hint">Опоздания и ранний уход считаются по графику конкретного сотрудника. Если график не задан — по умолчанию 09:00–18:00, Пн–Пт, допуск 10 минут.</div>
+    <div class="hint">Опоздания и ранний уход считаются по графику конкретного сотрудника. «Фиксированный» подходит и для врачей с дежурствами/вызовами — система сама отличит обычную смену от дежурства по времени и количеству смен за день, отдельный тип для этого не нужен. «Гибкий» — только если у человека вообще нет постоянных часов работы.</div>
   </div>
 </div>
 
@@ -430,8 +430,8 @@ function renderSchedules(){
         <div>
           <label>Тип графика</label>
           <select class="sched-type" data-chat="${e.chat_id}" onchange="onScheduleTypeChange(this)">
-            <option value="fixed" ${type==='fixed'?'selected':''}>Фиксированный</option>
-            <option value="flexible" ${type==='flexible'?'selected':''}>Гибкий (сутки/вызовы)</option>
+            <option value="fixed" ${type==='fixed'?'selected':''}>Фиксированный (+ дежурства/вызовы)</option>
+            <option value="flexible" ${type==='flexible'?'selected':''}>Гибкий (сутки/вызовы, без графика вообще)</option>
           </select>
         </div>
         <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
