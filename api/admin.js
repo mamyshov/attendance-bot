@@ -35,27 +35,6 @@ module.exports = async (req, res) => {
   const action = req.query.action;
 
   try {
-    if (action === 'get-qr') {
-      const { data, error } = await supabase.from('office').select('qr_secret').eq('id', 1).maybeSingle();
-      if (error) throw error;
-      res.status(200).json({ qr_secret: data ? data.qr_secret : null });
-      return;
-    }
-
-    if (action === 'save-qr' && req.method === 'POST') {
-      const { qr_secret } = req.body;
-      const { data: existing } = await supabase.from('office').select('id').eq('id', 1).maybeSingle();
-      if (existing) {
-        const { error } = await supabase.from('office').update({ qr_secret }).eq('id', 1);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('office').insert({ id: 1, qr_secret });
-        if (error) throw error;
-      }
-      res.status(200).json({ ok: true });
-      return;
-    }
-
     if (action === 'offices') {
       const { data, error } = await supabase.from('offices').select('*').order('name');
       if (error) throw error;
@@ -145,6 +124,14 @@ module.exports = async (req, res) => {
           .eq('chat_id', chat_id);
         if (error) throw error;
       }
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === 'delete-employee' && req.method === 'POST') {
+      const { chat_id } = req.body;
+      const { error } = await supabase.from('employees').delete().eq('chat_id', chat_id);
+      if (error) throw error;
       res.status(200).json({ ok: true });
       return;
     }
