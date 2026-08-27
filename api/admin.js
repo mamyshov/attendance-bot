@@ -207,6 +207,7 @@ module.exports = async (req, res) => {
       for (const [empChatId, emp] of Object.entries(byEmployee)) {
         const sched = scheduleByChatId[empChatId];
         const isFixed = sched && sched.schedule_type !== 'flexible';
+        const shiftCountByDate = {};
 
         let openIn = null;
         for (const e of emp.events) {
@@ -215,7 +216,10 @@ module.exports = async (req, res) => {
           } else if (e.type === 'out') {
             const outTs = new Date(e.ts);
             if (openIn) {
-              rows.push(buildShiftRow(empChatId, emp.name, openIn, outTs, sched, isFixed));
+              const dateKey = bishkekDateKey(openIn);
+              shiftCountByDate[dateKey] = (shiftCountByDate[dateKey] || 0) + 1;
+              const isAdditional = shiftCountByDate[dateKey] > 1;
+              rows.push(buildShiftRow(empChatId, emp.name, openIn, outTs, sched, isFixed, isAdditional));
               openIn = null;
             }
             // "уход" без предшествующего "прихода" в пределах буфера — пропускаем (обрезано историей)
@@ -223,7 +227,10 @@ module.exports = async (req, res) => {
         }
         if (openIn) {
           // Смена ещё не закончилась (сотрудник до сих пор на месте на момент запроса)
-          rows.push(buildShiftRow(empChatId, emp.name, openIn, null, sched, isFixed));
+          const dateKey = bishkekDateKey(openIn);
+          shiftCountByDate[dateKey] = (shiftCountByDate[dateKey] || 0) + 1;
+          const isAdditional = shiftCountByDate[dateKey] > 1;
+          rows.push(buildShiftRow(empChatId, emp.name, openIn, null, sched, isFixed, isAdditional));
         }
       }
 
@@ -248,7 +255,12 @@ module.exports = async (req, res) => {
   }
 };
 
-function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed) {
+function bishkekDateKey(date) {
+  const b = toBishkekParts(date);
+  return `${b.getFullYear()}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
+}
+
+function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional) {
   const fmtDateTime = (d) =>
     d.toLocaleString('ru-RU', {
       timeZone: 'Asia/Bishkek',
@@ -267,7 +279,12 @@ function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed) {
   let scheduleLabel = sched ? (isFixed ? 'фиксированный' : 'гибкий') : '—';
   let isCallout = false;
 
-  if (isFixed && sched) {
+  if (isFixed && sched && isAdditional) {
+    // Это уже вторая (или следующая) смена сотрудника в этот же календарный день —
+    // явно дежурство/доп. вызов, а не опоздание на обычную смену. Часы считаем, опоздание — нет.
+    scheduleLabel = 'дежурство / доп. смена';
+    isCallout = true;
+  } else if (isFixed && sched) {
     const bIn = toBishkekParts(inTs);
     const weekday = bIn.getDay();
     const { h: sh, m: sm } = parseHHMM(sched.work_start);
