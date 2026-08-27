@@ -4,67 +4,73 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Табельная — панель отдела кадров</title>
-<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --paper:#DED2AE; --paper-dark:#CBBC90; --ink:#22241F; --ink-soft:#54544A;
-    --green:#33613F; --green-dark:#234830; --rust:#9B3B27; --rust-dark:#7A2E1E;
-    --card-bg:#F1E9D2; --line:#B8A876;
+    --bg:#F5F6F8; --card:#FFFFFF; --border:#E3E6EB;
+    --text:#111827; --text-soft:#6B7280;
+    --blue:#2563EB; --blue-dark:#1D4ED8; --blue-soft:#EFF4FF;
+    --red:#DC2626; --red-soft:#FEF2F2;
+    --green:#059669; --green-soft:#ECFDF5;
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Inter',sans-serif;min-height:100vh;}
-  .wrap{max-width:1000px;margin:0 auto;padding:24px 18px 60px;}
-  header{border-bottom:3px solid var(--ink);padding-bottom:12px;margin-bottom:20px;}
-  header h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;text-transform:uppercase;margin:0;}
-  header .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1.5px;color:var(--ink-soft);text-transform:uppercase;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sans-serif;min-height:100vh;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 20px 60px;}
 
-  #loginScreen{max-width:360px;margin:80px auto;text-align:center;}
-  #loginScreen input{width:100%;font-family:'IBM Plex Mono',monospace;font-size:15px;padding:10px;border:2px solid var(--ink);background:#fff;margin:14px 0;}
+  header{margin-bottom:24px;}
+  header h1{font-weight:700;font-size:22px;margin:0 0 2px;color:var(--text);}
+  header .eyebrow{font-size:13px;color:var(--text-soft);}
+
+  #loginScreen{max-width:340px;margin:100px auto;text-align:center;}
+  #loginScreen .eyebrow{font-size:13px;color:var(--text-soft);margin-bottom:4px;}
+  #loginScreen h1{font-weight:700;font-size:20px;margin:0 0 20px;}
+  #loginScreen input{width:100%;font-size:14px;padding:11px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:12px;}
   #loginScreen button{width:100%;}
 
-  .card{background:var(--card-bg);border:2px solid var(--ink);padding:18px;margin-bottom:18px;position:relative;}
-  .card::before{content:attr(data-tag);position:absolute;top:-11px;left:14px;background:var(--paper);padding:0 8px;font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--ink-soft);}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(16,24,40,0.04);}
+  .card::before{content:attr(data-tag);display:block;font-weight:600;font-size:15px;color:var(--text);margin-bottom:14px;}
 
-  label{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px;color:var(--ink-soft);}
+  label{display:block;font-size:13px;font-weight:500;margin-bottom:5px;color:var(--text-soft);}
   input[type=date], input[type=text], input[type=number], select{
-    font-family:'IBM Plex Mono',monospace;font-size:14px;padding:9px;border:2px solid var(--ink);background:#fff;color:var(--ink);width:100%;
+    font-family:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);width:100%;
   }
-  .filters{display:flex;gap:14px;flex-wrap:wrap;align-items:end;}
+  input:focus, select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft);}
+  .filters{display:flex;gap:12px;flex-wrap:wrap;align-items:end;}
   .filters > div{flex:1;min-width:150px;}
   .filters button{white-space:nowrap;}
 
-  button{font-family:'Oswald',sans-serif;font-weight:600;font-size:14px;letter-spacing:0.5px;text-transform:uppercase;background:var(--ink);color:var(--paper);border:none;padding:11px 16px;cursor:pointer;}
-  button:hover{background:var(--green-dark);}
-  button.secondary{background:transparent;border:2px solid var(--ink);color:var(--ink);}
-  button.secondary:hover{background:var(--ink);color:var(--paper);}
+  button{font-family:inherit;font-weight:600;font-size:14px;background:var(--blue);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;transition:background .15s;}
+  button:hover{background:var(--blue-dark);}
+  button.secondary{background:#fff;border:1px solid var(--border);color:var(--text);}
+  button.secondary:hover{background:#F9FAFB;}
 
-  table{width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace;font-size:13px;}
-  th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:left;}
-  th{font-family:'Oswald',sans-serif;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-size:11px;color:var(--ink-soft);}
-  td.late{color:var(--rust-dark);font-weight:600;}
-  td.early{color:var(--rust-dark);font-weight:600;}
-  td.ok{color:var(--green-dark);}
-  .empty-note{font-size:13px;color:var(--ink-soft);text-align:center;padding:20px 0;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th,td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;}
+  th{font-weight:600;font-size:12px;color:var(--text-soft);}
+  td.late{color:var(--red);font-weight:600;}
+  td.early{color:var(--red);font-weight:600;}
+  td.ok{color:var(--green);}
+  .empty-note{font-size:13.5px;color:var(--text-soft);text-align:center;padding:24px 0;}
   .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
 
-  .sched-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:10px;padding-bottom:10px;border-bottom:1px dashed var(--line);}
+  .sched-row{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+  .sched-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
   .sched-row > div{min-width:110px;}
   .sched-row .name{min-width:160px;font-weight:600;padding-top:8px;}
-  .days{display:flex;gap:4px;flex-wrap:wrap;}
-  .day-toggle{border:2px solid var(--ink);padding:6px 8px;font-family:'IBM Plex Mono',monospace;font-size:12px;background:#fff;cursor:pointer;user-select:none;}
-  .day-toggle.active{background:var(--green);color:#fff;border-color:var(--green);}
-  .hint{font-size:12px;color:var(--ink-soft);margin-top:4px;}
+  .days{display:flex;gap:6px;flex-wrap:wrap;}
+  .day-toggle{border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;background:#fff;cursor:pointer;user-select:none;color:var(--text-soft);transition:.15s;}
+  .day-toggle.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+  .hint{font-size:12.5px;color:var(--text-soft);margin-top:4px;line-height:1.5;}
 </style>
 </head>
 <body>
 
 <div id="loginScreen">
-  <div class="eyebrow" style="text-align:center;">Табельная</div>
-  <h1 style="font-family:'Oswald',sans-serif;text-transform:uppercase;">Вход для HR</h1>
+  <div class="eyebrow">Табельная</div>
+  <h1>Вход для отдела кадров</h1>
   <input type="text" id="passInput" placeholder="Пароль администратора" onkeydown="if(event.key==='Enter')login()">
   <button onclick="login()">Войти</button>
-  <div class="hint" id="loginError" style="color:#9B3B27;"></div>
+  <div class="hint" id="loginError" style="color:var(--red);"></div>
 </div>
 
 <div class="wrap" id="mainScreen" style="display:none;">
@@ -103,6 +109,10 @@
     <div id="reportTable"><div class="empty-note">Выберите период и нажмите «Показать»</div></div>
   </div>
 
+  <div class="card" data-tag="Сотрудники">
+    <div id="employeesListContainer"><div class="empty-note">Загрузка...</div></div>
+  </div>
+
   <div class="card" data-tag="Заявки на подключение (приложение)">
     <div id="pendingDevicesContainer"><div class="empty-note">Загрузка...</div></div>
   </div>
@@ -130,23 +140,6 @@
         <button onclick="addOffice()">Добавить филиал</button>
       </div>
     </div>
-  </div>
-
-  <div class="card" data-tag="QR-код для входа">
-    <div class="filters">
-      <div style="flex:2; min-width:220px;">
-        <label>Секретный код (в него превратится QR)</label>
-        <input type="text" id="qrSecretInput" placeholder="Например: office-front-door-7F2A9">
-      </div>
-      <div style="flex:0 0 auto;">
-        <button class="secondary" onclick="generateRandomSecret()" style="white-space:nowrap;">Сгенерировать случайный</button>
-      </div>
-      <div style="flex:0 0 auto;">
-        <button onclick="saveQrSecret()" style="white-space:nowrap;">Сохранить и обновить QR</button>
-      </div>
-    </div>
-    <div class="hint">Распечатайте QR-код ниже и повесьте у входа в офис. Сотрудники сканируют его через кнопку /checkin у бота — так фиксируется приход и уход.</div>
-    <div id="qrCodeContainer" style="margin-top:16px; text-align:center;"></div>
   </div>
 
   <div class="card" data-tag="Графики работы по сотрудникам">
@@ -183,61 +176,46 @@ function login(){
       document.getElementById('fromDate').value = firstOfMonth;
       document.getElementById('toDate').value = today;
       loadSchedules();
-      loadQrSecret();
       loadOffices();
       loadPendingDevices();
     })
     .catch(() => { document.getElementById('loginError').textContent = 'Ошибка соединения'; });
 }
 
-async function loadQrSecret(){
-  const res = await fetch('/api/admin?action=get-qr', { headers: { 'x-admin-password': PASSWORD } });
-  const data = await res.json();
-  if(data.qr_secret){
-    document.getElementById('qrSecretInput').value = data.qr_secret;
-    renderQrCode(data.qr_secret);
-  }
-}
-
-function generateRandomSecret(){
-  const random = 'office-' + Math.random().toString(36).slice(2, 10);
-  document.getElementById('qrSecretInput').value = random;
-}
-
-async function saveQrSecret(){
-  const secret = document.getElementById('qrSecretInput').value.trim();
-  if(!secret){ alert('Введите или сгенерируйте код'); return; }
-  const res = await fetch('/api/admin?action=save-qr', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
-    body: JSON.stringify({ qr_secret: secret }),
-  });
-  const data = await res.json();
-  if(data.error){ alert(data.error); return; }
-  renderQrCode(secret);
-  alert('QR-код сохранён. Распечатайте его и повесьте у входа.');
-}
-
-function renderQrCode(secret){
-  const container = document.getElementById('qrCodeContainer');
-  container.innerHTML = '';
-  const box = document.createElement('div');
-  box.style.display = 'inline-block';
-  box.style.padding = '16px';
-  box.style.background = '#fff';
-  container.appendChild(box);
-  new QRCode(box, { text: secret, width: 220, height: 220 });
-  const label = document.createElement('div');
-  label.className = 'hint';
-  label.style.marginTop = '8px';
-  label.textContent = 'Распечатайте эту страницу (Ctrl+P) или сделайте скриншот этого кода.';
-  container.appendChild(label);
-}
-
 function populateEmployeeFilter(){
   const sel = document.getElementById('empFilter');
   sel.innerHTML = '<option value="">Все сотрудники</option>' +
     employees.map(e => `<option value="${e.chat_id}">${escapeHtml(e.name)}</option>`).join('');
+  renderEmployeesList();
+}
+
+function renderEmployeesList(){
+  const container = document.getElementById('employeesListContainer');
+  if(!employees.length){
+    container.innerHTML = '<div class="empty-note">Сотрудников пока нет</div>';
+    return;
+  }
+  container.innerHTML = '<table><thead><tr><th>Имя</th><th></th></tr></thead><tbody>' +
+    employees.map(e => `
+      <tr>
+        <td>${escapeHtml(e.name)}</td>
+        <td style="text-align:right;"><button class="secondary" onclick="deleteEmployee(${e.chat_id}, '${escapeHtml(e.name).replace(/'/g, "\\'")}')">Удалить</button></td>
+      </tr>
+    `).join('') + '</tbody></table>';
+}
+
+async function deleteEmployee(chatId, name){
+  if(!confirm(`Удалить сотрудника «${name}»? Записи о его прошлых приходах/уходах останутся в отчётах, но сам сотрудник исчезнет из списков.`)) return;
+  const res = await fetch('/api/admin?action=delete-employee', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ chat_id: chatId }),
+  });
+  const data = await res.json();
+  if(data.error){ alert(data.error); return; }
+  employees = employees.filter(e => e.chat_id !== chatId);
+  populateEmployeeFilter();
+  renderSchedules();
 }
 
 let officesCache = [];
