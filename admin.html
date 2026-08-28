@@ -61,8 +61,8 @@
   .sched-row{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);}
   .sched-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
   .sched-row .name{font-weight:600;margin-bottom:10px;}
-  .sched-controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end;}
-  .sched-controls > div{min-width:110px;}
+  .sched-controls{display:grid; grid-template-columns:240px 100px 100px 110px 1fr; gap:16px; align-items:end;}
+  @media (max-width:800px){ .sched-controls{grid-template-columns:1fr 1fr; } }
 
   .pending-row{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
   .pending-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
