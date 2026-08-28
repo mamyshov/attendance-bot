@@ -45,11 +45,12 @@
   button.secondary:hover{background:#F9FAFB;}
 
   table{width:100%;border-collapse:collapse;font-size:13.5px;}
-  th,td{border-bottom:1px solid var(--border);padding:10px 8px;text-align:left;}
-  th{font-weight:600;font-size:12px;color:var(--text-soft);}
-  td.late{color:var(--red);font-weight:600;}
-  td.early{color:var(--red);font-weight:600;}
-  td.ok{color:var(--green);}
+  th,td{border-bottom:1px solid var(--border);padding:12px 10px;text-align:left;white-space:nowrap;}
+  th{font-weight:600;font-size:11.5px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.3px;}
+  tbody tr:hover{background:#FAFBFC;}
+  td.late, td.early{color:var(--red);font-weight:600;}
+  td.ok{color:var(--text-soft);}
+  td.num{text-align:right;}
   .empty-note{font-size:13.5px;color:var(--text-soft);text-align:center;padding:24px 0;}
   .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
 
@@ -58,6 +59,12 @@
   .sched-row .name{font-weight:600;margin-bottom:10px;}
   .sched-controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end;}
   .sched-controls > div{min-width:110px;}
+
+  .pending-row{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+  .pending-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
+  .pending-row .name{min-width:180px;font-weight:600;padding-top:8px;flex:1 1 220px;}
+  .pending-row .office-field{flex:0 0 200px;}
+  .pending-row button{flex:0 0 auto;}
   .days{display:flex;gap:6px;flex-wrap:wrap;}
   .day-toggle{border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;background:#fff;cursor:pointer;user-select:none;color:var(--text-soft);transition:.15s;}
   .day-toggle.active{background:var(--blue);color:#fff;border-color:var(--blue);}
@@ -98,7 +105,7 @@
         <select id="empFilter"><option value="">Все сотрудники</option></select>
       </div>
       <div style="flex:0;">
-        <button onclick="loadReport()">Показать</button>
+        <button id="showReportBtn" onclick="loadReport()">Показать</button>
       </div>
       <div style="flex:0;">
         <button class="secondary" onclick="downloadCsv()">Скачать Excel (CSV)</button>
@@ -141,14 +148,17 @@
         <input type="number" id="newOfficeRadius" value="150">
       </div>
       <div style="flex:0;">
-        <button onclick="addOffice()">Добавить филиал</button>
+        <button id="addOfficeBtn" onclick="addOffice()">Добавить филиал</button>
       </div>
     </div>
   </div>
 
   <div class="card" data-tag="Графики работы по сотрудникам">
     <div id="schedulesContainer"><div class="empty-note">Загрузка...</div></div>
-    <button onclick="saveAllSchedules()">Сохранить графики</button>
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:4px;">
+      <span id="scheduleSaveStatus" class="hint" style="margin:0;"></span>
+      <button id="saveSchedulesBtn" onclick="saveAllSchedules()">Сохранить графики</button>
+    </div>
     <div class="hint">Опоздания и ранний уход считаются по графику конкретного сотрудника. «Фиксированный» подходит и для врачей с дежурствами/вызовами — система сама отличит обычную смену от дежурства по времени и количеству смен за день, отдельный тип для этого не нужен. «Гибкий» — только если у человека вообще нет постоянных часов работы.</div>
   </div>
 </div>
@@ -263,6 +273,10 @@ async function addOffice(){
     alert('Заполните все поля корректно');
     return;
   }
+  const btn = document.getElementById('addOfficeBtn');
+  btn.disabled = true;
+  btn.textContent = 'Добавляем...';
+
   await fetch('/api/admin?action=save-office', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
@@ -272,6 +286,9 @@ async function addOffice(){
   document.getElementById('newOfficeLat').value = '';
   document.getElementById('newOfficeLon').value = '';
   document.getElementById('newOfficeRadius').value = '150';
+
+  btn.disabled = false;
+  btn.textContent = 'Добавить филиал';
   loadOffices();
 }
 
@@ -299,18 +316,14 @@ function renderPendingDevices(list){
   }
   const officeOptions = officesCache.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
   container.innerHTML = list.map(p => `
-    <div class="sched-row" data-pending-row="${p.chat_id}">
+    <div class="pending-row" data-pending-row="${p.chat_id}">
       <div class="name">${escapeHtml(p.name)} <span class="hint">(${p.pending_type === 'relink' ? 'повторная привязка' : 'новая регистрация'})</span></div>
-      <div>
+      <div class="office-field">
         <label>Филиал</label>
         <select class="pending-office">${officeOptions}</select>
       </div>
-      <div style="flex:0;">
-        <button onclick="approveDevice(${p.chat_id})">Подтвердить</button>
-      </div>
-      <div style="flex:0;">
-        <button class="secondary" onclick="rejectDevice(${p.chat_id})">Отклонить</button>
-      </div>
+      <button onclick="approveDevice(${p.chat_id})">Подтвердить</button>
+      <button class="secondary" onclick="rejectDevice(${p.chat_id})">Отклонить</button>
     </div>
   `).join('');
 }
@@ -319,6 +332,10 @@ async function approveDevice(chatId){
   const row = document.querySelector(`[data-pending-row="${chatId}"]`);
   const officeId = row.querySelector('.pending-office').value;
   if(!officeId){ alert('Сначала добавьте хотя бы один филиал'); return; }
+  const btns = row.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
+  const confirmBtn = row.querySelector('button:not(.secondary)');
+  if(confirmBtn) confirmBtn.textContent = 'Подтверждаем...';
   await fetch('/api/admin?action=approve-device', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
@@ -330,6 +347,8 @@ async function approveDevice(chatId){
 
 async function rejectDevice(chatId){
   if(!confirm('Отклонить эту заявку?')) return;
+  const row = document.querySelector(`[data-pending-row="${chatId}"]`);
+  if(row) row.querySelectorAll('button').forEach(b => b.disabled = true);
   await fetch('/api/admin?action=reject-device', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
@@ -348,11 +367,19 @@ async function loadReport(){
   const chatId = document.getElementById('empFilter').value;
   if(!from || !to){ alert('Укажите обе даты'); return; }
 
+  const btn = document.getElementById('showReportBtn');
+  btn.disabled = true;
+  btn.textContent = 'Загружаем...';
+
   const params = new URLSearchParams({ action: 'report', from, to });
   if(chatId) params.set('chat_id', chatId);
 
   const res = await fetch('/api/admin?' + params.toString(), { headers: { 'x-admin-password': PASSWORD } });
   const data = await res.json();
+
+  btn.disabled = false;
+  btn.textContent = 'Показать';
+
   if(data.error){ alert(data.error); return; }
 
   lastRows = data.rows || [];
@@ -373,17 +400,17 @@ function renderReport(rows){
   summary.textContent = `Всего смен: ${rows.length} · Опозданий: ${totalLate} · Ранних уходов: ${totalEarly}` +
     (ongoing ? ` · Сейчас на месте: ${ongoing}` : '');
 
-  let html = '<table><thead><tr><th>Сотрудник</th><th>Начало смены</th><th>Конец смены</th><th>Тип</th><th>По графику</th><th>Опоздание</th><th>Ранний уход</th><th>Отработано</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Сотрудник</th><th>Начало смены</th><th>Конец смены</th><th>Тип</th><th>По графику</th><th class="num">Опоздание</th><th class="num">Ранний уход</th><th class="num">Отработано</th></tr></thead><tbody>';
   for(const r of rows){
     html += `<tr>
-      <td>${escapeHtml(r.name)}${r.isDeleted ? ' <span style="color:var(--text-soft); font-size:12px;">(удалён)</span>' : ''}</td>
+      <td style="white-space:normal;">${escapeHtml(r.name)}${r.isDeleted ? ' <span style="color:var(--text-soft); font-size:12px;">(удалён)</span>' : ''}</td>
       <td>${r.shiftStart}</td>
       <td>${r.shiftEnd === 'ещё на месте' ? '<b>ещё на месте</b>' : r.shiftEnd}</td>
       <td>${r.scheduleLabel}</td>
       <td>${r.scheduledStart ? r.scheduledStart + '–' + r.scheduledEnd : '—'}</td>
-      <td class="${r.lateMinutes > 0 ? 'late' : 'ok'}">${r.lateMinutes > 0 ? r.lateMinutes + ' мин' : '—'}</td>
-      <td class="${r.earlyMinutes > 0 ? 'early' : 'ok'}">${r.earlyMinutes > 0 ? r.earlyMinutes + ' мин' : '—'}</td>
-      <td>${r.workedHours !== null ? r.workedHours + ' ч' : '—'}</td>
+      <td class="num ${r.lateMinutes > 0 ? 'late' : 'ok'}">${r.lateMinutes > 0 ? r.lateMinutes + ' мин' : '—'}</td>
+      <td class="num ${r.earlyMinutes > 0 ? 'early' : 'ok'}">${r.earlyMinutes > 0 ? r.earlyMinutes + ' мин' : '—'}</td>
+      <td class="num">${r.workedHours !== null ? r.workedHours + ' ч' : '—'}</td>
     </tr>`;
   }
   html += '</tbody></table>';
@@ -480,6 +507,12 @@ function toggleDay(el){
 }
 
 async function saveAllSchedules(){
+  const btn = document.getElementById('saveSchedulesBtn');
+  const status = document.getElementById('scheduleSaveStatus');
+  btn.disabled = true;
+  btn.textContent = 'Сохраняем...';
+  status.textContent = '';
+
   for(const e of employees){
     const row = document.querySelector(`[data-chat-row="${e.chat_id}"]`);
     if(!row) continue;
@@ -495,7 +528,11 @@ async function saveAllSchedules(){
       body: JSON.stringify({ chat_id: e.chat_id, work_start, work_end, workdays, grace_minutes, schedule_type }),
     });
   }
-  alert('Графики сохранены');
+
+  btn.disabled = false;
+  btn.textContent = 'Сохранить графики';
+  status.textContent = 'Сохранено ✓';
+  setTimeout(() => { status.textContent = ''; }, 3000);
   loadSchedules();
 }
 
