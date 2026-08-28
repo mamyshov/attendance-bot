@@ -52,6 +52,10 @@
   td.ok{color:var(--text-soft);}
   td.num{text-align:right;}
   .empty-note{font-size:13.5px;color:var(--text-soft);text-align:center;padding:24px 0;}
+  .scroll-box{max-height:420px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;}
+  .scroll-box table{margin:0;}
+  .scroll-box thead th{position:sticky; top:0; background:var(--card); z-index:1;}
+  .scroll-box .empty-note{padding:16px;}
   .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
 
   .sched-row{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);}
@@ -107,8 +111,8 @@
       <div style="flex:0;">
         <button id="showReportBtn" onclick="loadReport()">Показать</button>
       </div>
-      <div style="flex:0;">
-        <button class="secondary" onclick="downloadCsv()">Скачать Excel (CSV)</button>
+      <div style="flex:0 0 auto;">
+        <button class="secondary" onclick="downloadCsv()" style="white-space:nowrap;">Скачать Excel (CSV)</button>
       </div>
     </div>
   </div>
@@ -117,11 +121,12 @@
     <div class="toolbar">
       <div id="summaryLine" class="hint"></div>
     </div>
-    <div id="reportTable"><div class="empty-note">Выберите период и нажмите «Показать»</div></div>
+    <div class="scroll-box" id="reportTable"><div class="empty-note">Выберите период и нажмите «Показать»</div></div>
   </div>
 
   <div class="card" data-tag="Сотрудники">
-    <div id="employeesListContainer"><div class="empty-note">Загрузка...</div></div>
+    <button id="toggleEmployeesBtn" class="secondary" onclick="toggleEmployeesList()">Показать список сотрудников</button>
+    <div class="scroll-box" id="employeesListContainer" style="display:none; margin-top:14px;"><div class="empty-note">Загрузка...</div></div>
   </div>
 
   <div class="card" data-tag="Заявки на подключение (приложение)">
@@ -206,6 +211,14 @@ function populateEmployeeFilter(){
   sel.innerHTML = '<option value="">Все сотрудники</option>' +
     employees.map(e => `<option value="${e.chat_id}">${escapeHtml(e.name)}</option>`).join('');
   renderEmployeesList();
+}
+
+function toggleEmployeesList(){
+  const container = document.getElementById('employeesListContainer');
+  const btn = document.getElementById('toggleEmployeesBtn');
+  const isHidden = container.style.display === 'none';
+  container.style.display = isHidden ? 'block' : 'none';
+  btn.textContent = isHidden ? 'Скрыть список сотрудников' : 'Показать список сотрудников';
 }
 
 function renderEmployeesList(){
