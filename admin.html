@@ -157,29 +157,28 @@ let lastRows = [];
 const DAY_LABELS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 const WEEK_DISPLAY_ORDER = [1,2,3,4,5,6,0]; // Пн..Вс — порядок отображения кнопок
 
-function login(){
+async function login(){
   PASSWORD = document.getElementById('passInput').value.trim();
   if(!PASSWORD){ return; }
-  fetch('/api/admin?action=employees', { headers: { 'x-admin-password': PASSWORD } })
-    .then(r => r.json())
-    .then(data => {
-      if(data.error){
-        document.getElementById('loginError').textContent = data.error;
-        return;
-      }
-      document.getElementById('loginScreen').style.display = 'none';
-      document.getElementById('mainScreen').style.display = 'block';
-      employees = data.employees || [];
-      populateEmployeeFilter();
-      const today = new Date().toISOString().slice(0,10);
-      const firstOfMonth = today.slice(0,8) + '01';
-      document.getElementById('fromDate').value = firstOfMonth;
-      document.getElementById('toDate').value = today;
-      loadSchedules();
-      loadOffices();
-      loadPendingDevices();
-    })
-    .catch(() => { document.getElementById('loginError').textContent = 'Ошибка соединения'; });
+  const res = await fetch('/api/admin?action=employees', { headers: { 'x-admin-password': PASSWORD } })
+    .catch(() => null);
+  if(!res){ document.getElementById('loginError').textContent = 'Ошибка соединения'; return; }
+  const data = await res.json();
+  if(data.error){
+    document.getElementById('loginError').textContent = data.error;
+    return;
+  }
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainScreen').style.display = 'block';
+  employees = data.employees || [];
+  populateEmployeeFilter();
+  const today = new Date().toISOString().slice(0,10);
+  const firstOfMonth = today.slice(0,8) + '01';
+  document.getElementById('fromDate').value = firstOfMonth;
+  document.getElementById('toDate').value = today;
+  loadSchedules();
+  await loadOffices();
+  loadPendingDevices();
 }
 
 function populateEmployeeFilter(){
