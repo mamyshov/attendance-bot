@@ -53,10 +53,11 @@
   .empty-note{font-size:13.5px;color:var(--text-soft);text-align:center;padding:24px 0;}
   .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
 
-  .sched-row{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+  .sched-row{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);}
   .sched-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
-  .sched-row > div{min-width:110px;}
-  .sched-row .name{min-width:160px;font-weight:600;padding-top:8px;}
+  .sched-row .name{font-weight:600;margin-bottom:10px;}
+  .sched-controls{display:flex;gap:12px;flex-wrap:wrap;align-items:end;}
+  .sched-controls > div{min-width:110px;}
   .days{display:flex;gap:6px;flex-wrap:wrap;}
   .day-toggle{border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;background:#fff;cursor:pointer;user-select:none;color:var(--text-soft);transition:.15s;}
   .day-toggle.active{background:var(--blue);color:#fff;border-color:var(--blue);}
@@ -74,9 +75,12 @@
 </div>
 
 <div class="wrap" id="mainScreen" style="display:none;">
-  <header>
-    <div class="eyebrow">Учёт присутствия</div>
-    <h1>Панель отдела кадров</h1>
+  <header style="display:flex; justify-content:space-between; align-items:end;">
+    <div>
+      <div class="eyebrow">Учёт присутствия</div>
+      <h1>Панель отдела кадров</h1>
+    </div>
+    <button class="secondary" onclick="logout()" style="margin-bottom:2px;">Выйти</button>
   </header>
 
   <div class="card" data-tag="Отчёт">
@@ -157,17 +161,23 @@ let lastRows = [];
 const DAY_LABELS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 const WEEK_DISPLAY_ORDER = [1,2,3,4,5,6,0]; // Пн..Вс — порядок отображения кнопок
 
-async function login(){
-  PASSWORD = document.getElementById('passInput').value.trim();
-  if(!PASSWORD){ return; }
-  const res = await fetch('/api/admin?action=employees', { headers: { 'x-admin-password': PASSWORD } })
+async function login(providedPassword){
+  const pass = providedPassword ?? document.getElementById('passInput').value.trim();
+  if(!pass){ return; }
+  const res = await fetch('/api/admin?action=employees', { headers: { 'x-admin-password': pass } })
     .catch(() => null);
-  if(!res){ document.getElementById('loginError').textContent = 'Ошибка соединения'; return; }
-  const data = await res.json();
-  if(data.error){
-    document.getElementById('loginError').textContent = data.error;
+  if(!res){
+    if(!providedPassword) document.getElementById('loginError').textContent = 'Ошибка соединения';
     return;
   }
+  const data = await res.json();
+  if(data.error){
+    if(!providedPassword) document.getElementById('loginError').textContent = data.error;
+    else localStorage.removeItem('tabelnaya_admin_password'); // сохранённый пароль больше не подходит
+    return;
+  }
+  PASSWORD = pass;
+  localStorage.setItem('tabelnaya_admin_password', pass);
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('mainScreen').style.display = 'block';
   employees = data.employees || [];
@@ -426,28 +436,30 @@ function renderSchedules(){
     return `
       <div class="sched-row" data-chat-row="${e.chat_id}">
         <div class="name">${escapeHtml(e.name)}</div>
-        <div>
-          <label>Тип графика</label>
-          <select class="sched-type" data-chat="${e.chat_id}" onchange="onScheduleTypeChange(this)">
-            <option value="fixed" ${type==='fixed'?'selected':''}>Фиксированный (+ дежурства/вызовы)</option>
-            <option value="flexible" ${type==='flexible'?'selected':''}>Гибкий (сутки/вызовы, без графика вообще)</option>
-          </select>
-        </div>
-        <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
-          <label>Начало</label>
-          <input type="text" class="sched-start" data-chat="${e.chat_id}" value="${s.work_start}" placeholder="09:00">
-        </div>
-        <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
-          <label>Конец</label>
-          <input type="text" class="sched-end" data-chat="${e.chat_id}" value="${s.work_end}" placeholder="18:00">
-        </div>
-        <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
-          <label>Допуск (мин)</label>
-          <input type="number" class="sched-grace" data-chat="${e.chat_id}" value="${s.grace_minutes ?? 10}">
-        </div>
-        <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
-          <label>Рабочие дни</label>
-          <div class="days">${daysHtml}</div>
+        <div class="sched-controls">
+          <div>
+            <label>Тип графика</label>
+            <select class="sched-type" data-chat="${e.chat_id}" onchange="onScheduleTypeChange(this)">
+              <option value="fixed" ${type==='fixed'?'selected':''}>Фиксированный (+ дежурства/вызовы)</option>
+              <option value="flexible" ${type==='flexible'?'selected':''}>Гибкий (сутки/вызовы, без графика вообще)</option>
+            </select>
+          </div>
+          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+            <label>Начало</label>
+            <input type="text" class="sched-start" data-chat="${e.chat_id}" value="${s.work_start}" placeholder="09:00">
+          </div>
+          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+            <label>Конец</label>
+            <input type="text" class="sched-end" data-chat="${e.chat_id}" value="${s.work_end}" placeholder="18:00">
+          </div>
+          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+            <label>Допуск (мин)</label>
+            <input type="number" class="sched-grace" data-chat="${e.chat_id}" value="${s.grace_minutes ?? 10}">
+          </div>
+          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+            <label>Рабочие дни</label>
+            <div class="days">${daysHtml}</div>
+          </div>
         </div>
         <div class="flex-note hint" style="${type==='fixed'?'display:none;':''} padding-top:8px;">
           Опоздания не считаются — только длительность смены (приход → уход), сколько бы часов это ни заняло.
@@ -486,6 +498,31 @@ async function saveAllSchedules(){
   alert('Графики сохранены');
   loadSchedules();
 }
+
+function logout(){
+  localStorage.removeItem('tabelnaya_admin_password');
+  location.reload();
+}
+
+// Автоматический вход, если пароль уже сохранён с прошлого раза
+const savedPassword = localStorage.getItem('tabelnaya_admin_password');
+if (savedPassword) {
+  login(savedPassword);
+}
+
+// Фоновое обновление списка сотрудников и заявок каждые 20 секунд,
+// чтобы не нужно было вручную нажимать F5
+setInterval(async () => {
+  if (!PASSWORD) return; // ещё не вошли
+  const res = await fetch('/api/admin?action=employees', { headers: { 'x-admin-password': PASSWORD } }).catch(() => null);
+  if (!res) return;
+  const data = await res.json();
+  if (data.error) return;
+  employees = data.employees || [];
+  populateEmployeeFilter();
+  renderSchedules();
+  loadPendingDevices();
+}, 20000);
 </script>
 </body>
 </html>
