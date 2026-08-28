@@ -209,19 +209,16 @@ module.exports = async (req, res) => {
       for (const [empChatId, emp] of Object.entries(byEmployee)) {
         const sched = scheduleByChatId[empChatId];
         const isFixed = sched && sched.schedule_type !== 'flexible';
-        const shiftCountByDate = {};
 
+        // Сначала собираем все смены (пары приход/уход) в хронологическом порядке
+        const shifts = [];
         let openIn = null;
         for (const e of emp.events) {
           if (e.type === 'in') {
             openIn = new Date(e.ts);
           } else if (e.type === 'out') {
-            const outTs = new Date(e.ts);
             if (openIn) {
-              const dateKey = bishkekDateKey(openIn);
-              shiftCountByDate[dateKey] = (shiftCountByDate[dateKey] || 0) + 1;
-              const isAdditional = shiftCountByDate[dateKey] > 1;
-              rows.push(buildShiftRow(empChatId, emp.name, openIn, outTs, sched, isFixed, isAdditional, !existingChatIds.has(String(empChatId))));
+              shifts.push({ inTs: openIn, outTs: new Date(e.ts) });
               openIn = null;
             }
             // "уход" без предшествующего "прихода" в пределах буфера — пропускаем (обрезано историей)
@@ -229,11 +226,38 @@ module.exports = async (req, res) => {
         }
         if (openIn) {
           // Смена ещё не закончилась (сотрудник до сих пор на месте на момент запроса)
-          const dateKey = bishkekDateKey(openIn);
-          shiftCountByDate[dateKey] = (shiftCountByDate[dateKey] || 0) + 1;
-          const isAdditional = shiftCountByDate[dateKey] > 1;
-          rows.push(buildShiftRow(empChatId, emp.name, openIn, null, sched, isFixed, isAdditional, !existingChatIds.has(String(empChatId))));
+          shifts.push({ inTs: openIn, outTs: null });
         }
+
+        // Группируем по календарному дню (по времени ПРИХОДА), чтобы понять, какая смена
+        // первая (для опоздания), а какая последняя (для раннего ухода) за этот день —
+        // это нужно, чтобы обеденный перерыв или выезд с возвратом не считались "ранним уходом"
+        const indicesByDate = {};
+        shifts.forEach((s, idx) => {
+          const key = bishkekDateKey(s.inTs);
+          if (!indicesByDate[key]) indicesByDate[key] = [];
+          indicesByDate[key].push(idx);
+        });
+
+        shifts.forEach((s, idx) => {
+          const key = bishkekDateKey(s.inTs);
+          const dayIndices = indicesByDate[key];
+          const isFirstOfDay = dayIndices[0] === idx;
+          const isLastOfDay = dayIndices[dayIndices.length - 1] === idx;
+          rows.push(
+            buildShiftRow(
+              empChatId,
+              emp.name,
+              s.inTs,
+              s.outTs,
+              sched,
+              isFixed,
+              !isFirstOfDay,
+              !existingChatIds.has(String(empChatId)),
+              isLastOfDay
+            )
+          );
+        });
       }
 
       // Оставляем только смены, которые действительно пересекаются с запрошенным диапазоном дат
@@ -262,7 +286,7 @@ function bishkekDateKey(date) {
   return `${b.getFullYear()}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
 }
 
-function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, isDeleted) {
+function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, isDeleted, isLastOfDay) {
   const fmtDateTime = (d) =>
     d.toLocaleString('ru-RU', {
       timeZone: 'Asia/Bishkek',
@@ -284,7 +308,7 @@ function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, 
   if (isFixed && sched && isAdditional) {
     // Это уже вторая (или следующая) смена сотрудника в этот же календарный день —
     // явно дежурство/доп. вызов, а не опоздание на обычную смену. Часы считаем, опоздание — нет.
-    scheduleLabel = 'дежурство / доп. смена';
+    scheduleLabel = isLastOfDay ? 'дежурство / доп. смена' : 'обед / выезд (в течение дня)';
     isCallout = true;
   } else if (isFixed && sched) {
     const bIn = toBishkekParts(inTs);
@@ -308,13 +332,12 @@ function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, 
       const grace = sched.grace_minutes ?? 10;
       lateMinutes = Math.max(0, actualInMinutes - (scheduledStartMinutes + grace));
 
-      if (outTs) {
+      if (outTs && isLastOfDay) {
         const bOut = toBishkekParts(outTs);
         const actualOutMinutes = bOut.getHours() * 60 + bOut.getMinutes();
-        // ранний уход считаем, только если уход в тот же день, что и приход (иначе это не "ранний уход", а просто долгая смена)
-        if (bOut.getDate() === bIn.getDate() && bOut.getMonth() === bIn.getMonth()) {
-          earlyMinutes = Math.max(0, scheduledEndMinutes - actualOutMinutes);
-        }
+        // Ранний уход считаем только для ПОСЛЕДНЕГО ухода за день — если после этого
+        // сотрудник ещё вернётся в тот же день (обед, выезд по делам), это не ранний уход.
+        earlyMinutes = Math.max(0, scheduledEndMinutes - actualOutMinutes);
       }
     } else {
       isCallout = true;
