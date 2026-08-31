@@ -1,370 +1,588 @@
-const { createClient } = require('@supabase/supabase-js');
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Табельная — панель отдела кадров</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F5F6F8; --card:#FFFFFF; --border:#E3E6EB;
+    --text:#111827; --text-soft:#6B7280;
+    --blue:#2563EB; --blue-dark:#1D4ED8; --blue-soft:#EFF4FF;
+    --red:#DC2626; --red-soft:#FEF2F2;
+    --green:#059669; --green-soft:#ECFDF5;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sans-serif;min-height:100vh;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1040px;margin:0 auto;padding:32px 20px 60px;}
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+  header{margin-bottom:24px;}
+  header h1{font-weight:700;font-size:22px;margin:0 0 2px;color:var(--text);}
+  header .eyebrow{font-size:13px;color:var(--text-soft);}
 
-function checkAuth(req) {
-  const pass = req.headers['x-admin-password'];
-  return ADMIN_PASSWORD && pass === ADMIN_PASSWORD;
-}
+  #loginScreen{max-width:340px;margin:100px auto;text-align:center;}
+  #loginScreen .eyebrow{font-size:13px;color:var(--text-soft);margin-bottom:4px;}
+  #loginScreen h1{font-weight:700;font-size:20px;margin:0 0 20px;}
+  #loginScreen input{width:100%;font-size:14px;padding:11px 12px;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:12px;}
+  #loginScreen button{width:100%;}
 
-// Переводит Date в "местные" компоненты Бишкека (UTC+6) через строковый трюк
-function toBishkekParts(date) {
-  const s = date.toLocaleString('en-US', { timeZone: 'Asia/Bishkek', hour12: false });
-  // s формата "MM/DD/YYYY, HH:mm:ss"
-  const d = new Date(s);
-  return d;
-}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 2px rgba(16,24,40,0.04);}
+  .card::before{content:attr(data-tag);display:block;font-weight:600;font-size:15px;color:var(--text);margin-bottom:14px;}
 
-function bishkekDayStartUtc(year, month, day) {
-  // Полночь Бишкека (UTC+6) в UTC = вычесть 6 часов
-  return new Date(Date.UTC(year, month, day, 0, 0, 0) - 6 * 60 * 60 * 1000);
-}
+  label{display:block;font-size:13px;font-weight:500;margin-bottom:5px;color:var(--text-soft);}
+  input[type=date], input[type=text], input[type=number], select{
+    font-family:inherit;font-size:14px;padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text);width:100%;
+  }
+  input:focus, select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft);}
+  .filters{display:flex;gap:12px;flex-wrap:wrap;align-items:end;}
+  .filters > div{flex:1;min-width:150px;}
+  .filters button{white-space:nowrap;}
 
-function parseHHMM(str) {
-  const [h, m] = (str || '09:00').split(':').map(Number);
-  return { h, m };
-}
+  button{font-family:inherit;font-weight:600;font-size:14px;background:var(--blue);color:#fff;border:none;border-radius:8px;padding:10px 16px;cursor:pointer;transition:background .15s;}
+  button:hover{background:var(--blue-dark);}
+  button.secondary{background:#fff;border:1px solid var(--border);color:var(--text);}
+  button.secondary:hover{background:#F9FAFB;}
 
-module.exports = async (req, res) => {
-  if (!checkAuth(req)) {
-    res.status(401).json({ error: 'Неверный пароль администратора' });
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  th,td{border-bottom:1px solid var(--border);padding:12px 10px;text-align:left;white-space:nowrap;}
+  th{font-weight:600;font-size:11.5px;color:var(--text-soft);text-transform:uppercase;letter-spacing:0.3px;}
+  tbody tr:hover{background:#FAFBFC;}
+  td.late, td.early{color:var(--red);font-weight:600;}
+  td.ok{color:var(--text-soft);}
+  td.num{text-align:right;}
+  .empty-note{font-size:13.5px;color:var(--text-soft);text-align:center;padding:24px 0;}
+  .scroll-box{max-height:420px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;}
+  .scroll-box table{margin:0;}
+  .scroll-box thead th{position:sticky; top:0; background:var(--card); z-index:1;}
+  .scroll-box .empty-note{padding:16px;}
+  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px;}
+
+  .sched-row{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);}
+  .sched-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
+  .sched-row .name{font-weight:600;margin-bottom:10px;}
+  .sched-controls{display:grid; grid-template-columns:240px 100px 100px 110px 1fr; gap:16px; align-items:end;}
+  @media (max-width:800px){ .sched-controls{grid-template-columns:1fr 1fr; } }
+
+  .pending-row{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+  .pending-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
+  .pending-row .name{min-width:180px;font-weight:600;padding-top:8px;flex:1 1 220px;}
+  .pending-row .office-field{flex:0 0 200px;}
+  .pending-row button{flex:0 0 auto;}
+  .days{display:flex;gap:6px;flex-wrap:wrap;}
+  .day-toggle{border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;background:#fff;cursor:pointer;user-select:none;color:var(--text-soft);transition:.15s;}
+  .day-toggle.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+  .hint{font-size:12.5px;color:var(--text-soft);margin-top:4px;line-height:1.5;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="eyebrow">Табельная</div>
+  <h1>Вход для отдела кадров</h1>
+  <input type="text" id="passInput" placeholder="Пароль администратора" onkeydown="if(event.key==='Enter')login()">
+  <button onclick="login()">Войти</button>
+  <div class="hint" id="loginError" style="color:var(--red);"></div>
+</div>
+
+<div class="wrap" id="mainScreen" style="display:none;">
+  <header style="display:flex; justify-content:space-between; align-items:end;">
+    <div>
+      <div class="eyebrow">Учёт присутствия</div>
+      <h1>Панель отдела кадров</h1>
+    </div>
+    <button class="secondary" onclick="logout()" style="margin-bottom:2px;">Выйти</button>
+  </header>
+
+  <div class="card" data-tag="Отчёт">
+    <div class="filters">
+      <div>
+        <label>С даты</label>
+        <input type="date" id="fromDate">
+      </div>
+      <div>
+        <label>По дату</label>
+        <input type="date" id="toDate">
+      </div>
+      <div>
+        <label>Сотрудник</label>
+        <select id="empFilter"><option value="">Все сотрудники</option></select>
+      </div>
+      <div style="flex:0;">
+        <button id="showReportBtn" onclick="loadReport()">Показать</button>
+      </div>
+      <div style="flex:0 0 auto;">
+        <button class="secondary" onclick="downloadCsv()" style="white-space:nowrap;">Скачать Excel (CSV)</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-tag="Результат">
+    <div class="toolbar">
+      <div id="summaryLine" class="hint"></div>
+    </div>
+    <div class="scroll-box" id="reportTable"><div class="empty-note">Выберите период и нажмите «Показать»</div></div>
+  </div>
+
+  <div class="card" data-tag="Сотрудники">
+    <button id="toggleEmployeesBtn" class="secondary" onclick="toggleEmployeesList()">Показать список сотрудников</button>
+    <div class="scroll-box" id="employeesListContainer" style="display:none; margin-top:14px;"><div class="empty-note">Загрузка...</div></div>
+  </div>
+
+  <div class="card" data-tag="Заявки на подключение (приложение)">
+    <div id="pendingDevicesContainer"><div class="empty-note">Загрузка...</div></div>
+  </div>
+
+  <div class="card" data-tag="Филиалы">
+    <div id="officesContainer"><div class="empty-note">Загрузка...</div></div>
+    <div class="filters" style="margin-top:14px;">
+      <div>
+        <label>Название филиала</label>
+        <input type="text" id="newOfficeName" placeholder="Например: Филиал на Чуй">
+      </div>
+      <div>
+        <label>Широта</label>
+        <input type="text" id="newOfficeLat" placeholder="42.901299">
+      </div>
+      <div>
+        <label>Долгота</label>
+        <input type="text" id="newOfficeLon" placeholder="74.585143">
+      </div>
+      <div>
+        <label>Радиус (м)</label>
+        <input type="number" id="newOfficeRadius" value="150">
+      </div>
+      <div style="flex:0;">
+        <button id="addOfficeBtn" onclick="addOffice()">Добавить филиал</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" data-tag="Графики работы по сотрудникам">
+    <div id="schedulesContainer"><div class="empty-note">Загрузка...</div></div>
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+      <span id="scheduleSaveStatus" class="hint" style="margin:0;"></span>
+      <button id="saveSchedulesBtn" onclick="saveAllSchedules()">Сохранить графики</button>
+    </div>
+    <div class="hint">Опоздания и ранний уход считаются по графику конкретного сотрудника. «Фиксированный» подходит и для врачей с дежурствами/вызовами — система сама отличит обычную смену от дежурства по времени и количеству смен за день, отдельный тип для этого не нужен. «Гибкий» — только если у человека вообще нет постоянных часов работы.</div>
+  </div>
+</div>
+
+<script>
+let PASSWORD = '';
+let employees = [];
+let schedulesData = {};
+let lastRows = [];
+const DAY_LABELS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+const WEEK_DISPLAY_ORDER = [1,2,3,4,5,6,0]; // Пн..Вс — порядок отображения кнопок
+
+async function login(providedPassword){
+  const pass = providedPassword ?? document.getElementById('passInput').value.trim();
+  if(!pass){ return; }
+  const res = await fetch('/api/admin?action=employees', { headers: { 'x-admin-password': pass } })
+    .catch(() => null);
+  if(!res){
+    if(!providedPassword) document.getElementById('loginError').textContent = 'Ошибка соединения';
     return;
   }
-
-  const action = req.query.action;
-
-  try {
-    if (action === 'offices') {
-      const { data, error } = await supabase.from('offices').select('*').order('name');
-      if (error) throw error;
-      res.status(200).json({ offices: data });
-      return;
-    }
-
-    if (action === 'save-office' && req.method === 'POST') {
-      const { id, name, lat, lon, radius } = req.body;
-      if (id) {
-        const { error } = await supabase.from('offices').update({ name, lat, lon, radius }).eq('id', id);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('offices').insert({ name, lat, lon, radius });
-        if (error) throw error;
-      }
-      res.status(200).json({ ok: true });
-      return;
-    }
-
-    if (action === 'delete-office' && req.method === 'POST') {
-      const { id } = req.body;
-      // Сначала снимаем привязку у сотрудников, которые ссылались на этот филиал —
-      // иначе база данных не даст удалить филиал (защита от "битых" ссылок).
-      const { error: unassignErr } = await supabase.from('employees').update({ office_id: null }).eq('office_id', id);
-      if (unassignErr) throw unassignErr;
-
-      const { error } = await supabase.from('offices').delete().eq('id', id);
-      if (error) throw error;
-      res.status(200).json({ ok: true });
-      return;
-    }
-
-    if (action === 'pending-devices') {
-      const { data, error } = await supabase
-        .from('employees')
-        .select('chat_id, name, pending_type, requested_at, office_id')
-        .eq('device_pending', true)
-        .order('requested_at', { ascending: true });
-      if (error) throw error;
-      res.status(200).json({ pending: data });
-      return;
-    }
-
-    if (action === 'approve-device' && req.method === 'POST') {
-      const { chat_id, office_id } = req.body;
-      const { data: emp, error: findErr } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('chat_id', chat_id)
-        .maybeSingle();
-      if (findErr) throw findErr;
-      if (!emp) {
-        res.status(400).json({ error: 'Заявка не найдена' });
-        return;
-      }
-
-      const update = { device_pending: false, pending_type: null, requested_at: null, office_id };
-      if (emp.pending_type === 'relink' && emp.pending_device_token) {
-        update.device_token = emp.pending_device_token;
-        update.pending_device_token = null;
-      }
-
-      const { error } = await supabase.from('employees').update(update).eq('chat_id', chat_id);
-      if (error) throw error;
-      res.status(200).json({ ok: true });
-      return;
-    }
-
-    if (action === 'reject-device' && req.method === 'POST') {
-      const { chat_id } = req.body;
-      const { data: emp, error: findErr } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('chat_id', chat_id)
-        .maybeSingle();
-      if (findErr) throw findErr;
-      if (!emp) {
-        res.status(200).json({ ok: true });
-        return;
-      }
-
-      if (emp.pending_type === 'register') {
-        // Это была первая заявка без подтверждённого устройства — просто удаляем запись
-        const { error } = await supabase.from('employees').delete().eq('chat_id', chat_id);
-        if (error) throw error;
-      } else {
-        // Перепривязка отклонена — оставляем старое устройство как было
-        const { error } = await supabase
-          .from('employees')
-          .update({ device_pending: false, pending_type: null, pending_device_token: null, requested_at: null })
-          .eq('chat_id', chat_id);
-        if (error) throw error;
-      }
-      res.status(200).json({ ok: true });
-      return;
-    }
-
-    if (action === 'delete-employee' && req.method === 'POST') {
-      const { chat_id } = req.body;
-      const { error } = await supabase.from('employees').delete().eq('chat_id', chat_id);
-      if (error) throw error;
-      res.status(200).json({ ok: true });
-      return;
-    }
-
-    if (action === 'employees') {
-      const { data, error } = await supabase.from('employees').select('chat_id, name').order('name');
-      if (error) throw error;
-      res.status(200).json({ employees: data });
-      return;
-    }
-
-    if (action === 'schedules') {
-      const { data, error } = await supabase.from('schedules').select('*');
-      if (error) throw error;
-      res.status(200).json({ schedules: data });
-      return;
-    }
-
-    if (action === 'save-schedule' && req.method === 'POST') {
-      const { chat_id, work_start, work_end, workdays, grace_minutes, schedule_type } = req.body;
-      const { error } = await supabase.from('schedules').upsert({
-        chat_id,
-        work_start,
-        work_end,
-        workdays,
-        grace_minutes,
-        schedule_type: schedule_type || 'fixed',
-      });
-      if (error) throw error;
-      res.status(200).json({ ok: true });
-      return;
-    }
-
-    if (action === 'report') {
-      const { from, to, chat_id } = req.query;
-      if (!from || !to) {
-        res.status(400).json({ error: 'Нужны параметры from и to (YYYY-MM-DD)' });
-        return;
-      }
-      const [fy, fm, fd] = from.split('-').map(Number);
-      const [ty, tm, td] = to.split('-').map(Number);
-      const startUtc = bishkekDayStartUtc(fy, fm - 1, fd);
-      const endUtc = new Date(bishkekDayStartUtc(ty, tm - 1, td).getTime() + 24 * 60 * 60 * 1000);
-
-      // Берём события с запасом в 3 дня до и после диапазона — чтобы правильно "собрать" смены,
-      // которые начались до начала диапазона или ещё не закончились (сутки, ночные смены).
-      const bufferStart = new Date(startUtc.getTime() - 3 * 24 * 60 * 60 * 1000);
-      const bufferEnd = new Date(endUtc.getTime() + 3 * 24 * 60 * 60 * 1000);
-
-      let query = supabase
-        .from('events')
-        .select('*')
-        .gte('ts', bufferStart.toISOString())
-        .lt('ts', bufferEnd.toISOString())
-        .order('ts', { ascending: true });
-      if (chat_id) query = query.eq('chat_id', chat_id);
-
-      const { data: events, error } = await query;
-      if (error) throw error;
-
-      const { data: schedules } = await supabase.from('schedules').select('*');
-      const { data: existingEmployees } = await supabase.from('employees').select('chat_id');
-      const existingChatIds = new Set((existingEmployees || []).map((e) => String(e.chat_id)));
-      const scheduleByChatId = {};
-      (schedules || []).forEach((s) => (scheduleByChatId[s.chat_id] = s));
-
-      // Группируем события по сотруднику, затем "склеиваем" в смены: приход -> следующий уход
-      const byEmployee = {};
-      for (const e of events) {
-        if (!byEmployee[e.chat_id]) byEmployee[e.chat_id] = { name: e.name, events: [] };
-        byEmployee[e.chat_id].events.push(e);
-      }
-
-      const rows = [];
-      for (const [empChatId, emp] of Object.entries(byEmployee)) {
-        const sched = scheduleByChatId[empChatId];
-        const isFixed = sched && sched.schedule_type !== 'flexible';
-
-        // Сначала собираем все смены (пары приход/уход) в хронологическом порядке
-        const shifts = [];
-        let openIn = null;
-        for (const e of emp.events) {
-          if (e.type === 'in') {
-            openIn = new Date(e.ts);
-          } else if (e.type === 'out') {
-            if (openIn) {
-              shifts.push({ inTs: openIn, outTs: new Date(e.ts) });
-              openIn = null;
-            }
-            // "уход" без предшествующего "прихода" в пределах буфера — пропускаем (обрезано историей)
-          }
-        }
-        if (openIn) {
-          // Смена ещё не закончилась (сотрудник до сих пор на месте на момент запроса)
-          shifts.push({ inTs: openIn, outTs: null });
-        }
-
-        // Группируем по календарному дню (по времени ПРИХОДА), чтобы понять, какая смена
-        // первая (для опоздания), а какая последняя (для раннего ухода) за этот день —
-        // это нужно, чтобы обеденный перерыв или выезд с возвратом не считались "ранним уходом"
-        const indicesByDate = {};
-        shifts.forEach((s, idx) => {
-          const key = bishkekDateKey(s.inTs);
-          if (!indicesByDate[key]) indicesByDate[key] = [];
-          indicesByDate[key].push(idx);
-        });
-
-        shifts.forEach((s, idx) => {
-          const key = bishkekDateKey(s.inTs);
-          const dayIndices = indicesByDate[key];
-          const isFirstOfDay = dayIndices[0] === idx;
-          const isLastOfDay = dayIndices[dayIndices.length - 1] === idx;
-          rows.push(
-            buildShiftRow(
-              empChatId,
-              emp.name,
-              s.inTs,
-              s.outTs,
-              sched,
-              isFixed,
-              !isFirstOfDay,
-              !existingChatIds.has(String(empChatId)),
-              isLastOfDay
-            )
-          );
-        });
-      }
-
-      // Оставляем только смены, которые действительно пересекаются с запрошенным диапазоном дат
-      const filtered = rows.filter((r) => {
-        const shiftStart = r._inRaw;
-        const shiftEnd = r._outRaw || bufferEnd;
-        return shiftStart < endUtc && shiftEnd >= startUtc;
-      });
-
-      filtered.sort((a, b) => b._inRaw - a._inRaw);
-      filtered.forEach((r) => { delete r._inRaw; delete r._outRaw; });
-
-      res.status(200).json({ rows: filtered });
-      return;
-    }
-
-    res.status(400).json({ error: 'Неизвестное действие' });
-  } catch (e) {
-    console.error('ADMIN API ERROR:', e);
-    res.status(500).json({ error: String(e.message || e) });
+  const data = await res.json();
+  if(data.error){
+    if(!providedPassword) document.getElementById('loginError').textContent = data.error;
+    else localStorage.removeItem('tabelnaya_admin_password'); // сохранённый пароль больше не подходит
+    return;
   }
-};
-
-function bishkekDateKey(date) {
-  const b = toBishkekParts(date);
-  return `${b.getFullYear()}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
+  PASSWORD = pass;
+  localStorage.setItem('tabelnaya_admin_password', pass);
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainScreen').style.display = 'block';
+  employees = data.employees || [];
+  populateEmployeeFilter();
+  const today = new Date().toISOString().slice(0,10);
+  const firstOfMonth = today.slice(0,8) + '01';
+  document.getElementById('fromDate').value = firstOfMonth;
+  document.getElementById('toDate').value = today;
+  loadSchedules();
+  await loadOffices();
+  loadPendingDevices();
 }
 
-function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, isDeleted, isLastOfDay) {
-  const fmtDateTime = (d) =>
-    d.toLocaleString('ru-RU', {
-      timeZone: 'Asia/Bishkek',
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
+function populateEmployeeFilter(){
+  const sel = document.getElementById('empFilter');
+  sel.innerHTML = '<option value="">Все сотрудники</option>' +
+    employees.map(e => `<option value="${e.chat_id}">${escapeHtml(e.name)}</option>`).join('');
+  renderEmployeesList();
+}
+
+function toggleEmployeesList(){
+  const container = document.getElementById('employeesListContainer');
+  const btn = document.getElementById('toggleEmployeesBtn');
+  const isHidden = container.style.display === 'none';
+  container.style.display = isHidden ? 'block' : 'none';
+  btn.textContent = isHidden ? 'Скрыть список сотрудников' : 'Показать список сотрудников';
+}
+
+function renderEmployeesList(){
+  const container = document.getElementById('employeesListContainer');
+  if(!employees.length){
+    container.innerHTML = '<div class="empty-note">Сотрудников пока нет</div>';
+    return;
+  }
+  container.innerHTML = '<table><thead><tr><th>Имя</th><th></th></tr></thead><tbody>' +
+    employees.map(e => `
+      <tr>
+        <td>${escapeHtml(e.name)}</td>
+        <td style="text-align:right;"><button class="secondary" onclick="deleteEmployee(${e.chat_id}, '${escapeHtml(e.name).replace(/'/g, "\\'")}')">Удалить</button></td>
+      </tr>
+    `).join('') + '</tbody></table>';
+}
+
+async function deleteEmployee(chatId, name){
+  if(!confirm(`Удалить сотрудника «${name}»? Записи о его прошлых приходах/уходах останутся в отчётах, но сам сотрудник исчезнет из списков.`)) return;
+  const res = await fetch('/api/admin?action=delete-employee', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ chat_id: chatId }),
+  });
+  const data = await res.json();
+  if(data.error){ alert(data.error); return; }
+  employees = employees.filter(e => e.chat_id !== chatId);
+  populateEmployeeFilter();
+  renderSchedules();
+}
+
+let officesCache = [];
+
+async function loadOffices(){
+  const res = await fetch('/api/admin?action=offices', { headers: { 'x-admin-password': PASSWORD } });
+  const data = await res.json();
+  officesCache = data.offices || [];
+  renderOffices();
+}
+
+function renderOffices(){
+  const container = document.getElementById('officesContainer');
+  if(!officesCache.length){
+    container.innerHTML = '<div class="empty-note">Филиалов пока нет — добавьте первый ниже</div>';
+    return;
+  }
+  container.innerHTML = '<table><thead><tr><th>Название</th><th>Широта</th><th>Долгота</th><th>Радиус</th><th></th></tr></thead><tbody>' +
+    officesCache.map(o => `
+      <tr>
+        <td>${escapeHtml(o.name)}</td>
+        <td>${o.lat}</td>
+        <td>${o.lon}</td>
+        <td>${o.radius} м</td>
+        <td><button class="secondary" onclick="deleteOffice(${o.id})">Удалить</button></td>
+      </tr>
+    `).join('') + '</tbody></table>';
+}
+
+async function addOffice(){
+  const name = document.getElementById('newOfficeName').value.trim();
+  const lat = parseFloat(document.getElementById('newOfficeLat').value);
+  const lon = parseFloat(document.getElementById('newOfficeLon').value);
+  const radius = parseInt(document.getElementById('newOfficeRadius').value);
+  if(!name || isNaN(lat) || isNaN(lon) || isNaN(radius)){
+    alert('Заполните все поля корректно');
+    return;
+  }
+  const btn = document.getElementById('addOfficeBtn');
+  btn.disabled = true;
+  btn.textContent = 'Добавляем...';
+
+  const res = await fetch('/api/admin?action=save-office', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ name, lat, lon, radius }),
+  });
+  const data = await res.json();
+  btn.disabled = false;
+  btn.textContent = 'Добавить филиал';
+  if(data.error){
+    alert('Не удалось добавить филиал: ' + data.error);
+    return;
+  }
+  document.getElementById('newOfficeName').value = '';
+  document.getElementById('newOfficeLat').value = '';
+  document.getElementById('newOfficeLon').value = '';
+  document.getElementById('newOfficeRadius').value = '150';
+
+  loadOffices();
+}
+
+async function deleteOffice(id){
+  if(!confirm('Удалить этот филиал? Если на него назначены сотрудники, их привязку к филиалу нужно будет задать заново.')) return;
+  const res = await fetch('/api/admin?action=delete-office', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ id }),
+  });
+  const data = await res.json();
+  if(data.error){
+    alert('Не удалось удалить филиал: ' + data.error);
+    return;
+  }
+  loadOffices();
+}
+
+async function loadPendingDevices(){
+  const res = await fetch('/api/admin?action=pending-devices', { headers: { 'x-admin-password': PASSWORD } });
+  const data = await res.json();
+  renderPendingDevices(data.pending || []);
+}
+
+function renderPendingDevices(list){
+  const container = document.getElementById('pendingDevicesContainer');
+  if(!list.length){
+    container.innerHTML = '<div class="empty-note">Заявок нет</div>';
+    return;
+  }
+  const officeOptions = officesCache.map(o => `<option value="${o.id}">${escapeHtml(o.name)}</option>`).join('');
+  container.innerHTML = list.map(p => `
+    <div class="pending-row" data-pending-row="${p.chat_id}">
+      <div class="name">${escapeHtml(p.name)} <span class="hint">(${p.pending_type === 'relink' ? 'повторная привязка' : 'новая регистрация'})</span></div>
+      <div class="office-field">
+        <label>Филиал</label>
+        <select class="pending-office">${officeOptions}</select>
+      </div>
+      <button onclick="approveDevice(${p.chat_id})">Подтвердить</button>
+      <button class="secondary" onclick="rejectDevice(${p.chat_id})">Отклонить</button>
+    </div>
+  `).join('');
+}
+
+async function approveDevice(chatId){
+  const row = document.querySelector(`[data-pending-row="${chatId}"]`);
+  const officeId = row.querySelector('.pending-office').value;
+  if(!officeId){ alert('Сначала добавьте хотя бы один филиал'); return; }
+  const btns = row.querySelectorAll('button');
+  btns.forEach(b => b.disabled = true);
+  const confirmBtn = row.querySelector('button:not(.secondary)');
+  if(confirmBtn) confirmBtn.textContent = 'Подтверждаем...';
+  await fetch('/api/admin?action=approve-device', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ chat_id: chatId, office_id: parseInt(officeId) }),
+  });
+  loadPendingDevices();
+  loadOffices();
+}
+
+async function rejectDevice(chatId){
+  if(!confirm('Отклонить эту заявку?')) return;
+  const row = document.querySelector(`[data-pending-row="${chatId}"]`);
+  if(row) row.querySelectorAll('button').forEach(b => b.disabled = true);
+  await fetch('/api/admin?action=reject-device', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ chat_id: chatId }),
+  });
+  loadPendingDevices();
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadReport(){
+  const from = document.getElementById('fromDate').value;
+  const to = document.getElementById('toDate').value;
+  const chatId = document.getElementById('empFilter').value;
+  if(!from || !to){ alert('Укажите обе даты'); return; }
+
+  const btn = document.getElementById('showReportBtn');
+  btn.disabled = true;
+  btn.textContent = 'Загружаем...';
+
+  const params = new URLSearchParams({ action: 'report', from, to });
+  if(chatId) params.set('chat_id', chatId);
+
+  const res = await fetch('/api/admin?' + params.toString(), { headers: { 'x-admin-password': PASSWORD } });
+  const data = await res.json();
+
+  btn.disabled = false;
+  btn.textContent = 'Показать';
+
+  if(data.error){ alert(data.error); return; }
+
+  lastRows = data.rows || [];
+  renderReport(lastRows);
+}
+
+function renderReport(rows){
+  const target = document.getElementById('reportTable');
+  const summary = document.getElementById('summaryLine');
+  if(!rows.length){
+    target.innerHTML = '<div class="empty-note">За этот период смен нет</div>';
+    summary.textContent = '';
+    return;
+  }
+  const totalLate = rows.filter(r => r.lateMinutes > 0).length;
+  const totalEarly = rows.filter(r => r.earlyMinutes > 0).length;
+  const ongoing = rows.filter(r => r.shiftEnd === 'ещё на месте').length;
+  summary.textContent = `Всего смен: ${rows.length} · Опозданий: ${totalLate} · Ранних уходов: ${totalEarly}` +
+    (ongoing ? ` · Сейчас на месте: ${ongoing}` : '');
+
+  let html = '<table><thead><tr><th>Сотрудник</th><th>Начало смены</th><th>Конец смены</th><th>Тип</th><th>По графику</th><th class="num">Опоздание</th><th class="num">Ранний уход</th><th class="num">Отработано</th></tr></thead><tbody>';
+  for(const r of rows){
+    html += `<tr>
+      <td style="white-space:normal;">${escapeHtml(r.name)}${r.isDeleted ? ' <span style="color:var(--text-soft); font-size:12px;">(удалён)</span>' : ''}</td>
+      <td>${r.shiftStart}</td>
+      <td>${r.shiftEnd === 'ещё на месте' ? '<b>ещё на месте</b>' : r.shiftEnd}</td>
+      <td>${r.scheduleLabel}</td>
+      <td>${r.scheduledStart ? r.scheduledStart + '–' + r.scheduledEnd : '—'}</td>
+      <td class="num ${r.lateMinutes > 0 ? 'late' : 'ok'}">${r.lateMinutes > 0 ? r.lateMinutes + ' мин' : '—'}</td>
+      <td class="num ${r.earlyMinutes > 0 ? 'early' : 'ok'}">${r.earlyMinutes > 0 ? r.earlyMinutes + ' мин' : '—'}</td>
+      <td class="num">${r.workedHours !== null ? r.workedHours + ' ч' : '—'}</td>
+    </tr>`;
+  }
+  html += '</tbody></table>';
+  target.innerHTML = html;
+}
+
+function downloadCsv(){
+  if(!lastRows.length){ alert('Сначала нажмите «Показать»'); return; }
+  const header = ['Сотрудник','Начало смены','Конец смены','Тип графика','По графику','Опоздание (мин)','Ранний уход (мин)','Отработано (ч)'];
+  const lines = [header];
+  for(const r of lastRows){
+    lines.push([
+      r.name + (r.isDeleted ? ' (удалён)' : ''), r.shiftStart, r.shiftEnd, r.scheduleLabel,
+      r.scheduledStart ? (r.scheduledStart + '-' + r.scheduledEnd) : '',
+      r.lateMinutes || 0, r.earlyMinutes || 0, r.workedHours !== null ? r.workedHours : ''
+    ]);
+  }
+  const csv = '\uFEFF' + lines.map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tabel_${document.getElementById('fromDate').value}_${document.getElementById('toDate').value}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function loadSchedules(){
+  const res = await fetch('/api/admin?action=schedules', { headers: { 'x-admin-password': PASSWORD } });
+  const data = await res.json();
+  schedulesData = {};
+  (data.schedules || []).forEach(s => schedulesData[s.chat_id] = s);
+  renderSchedules();
+}
+
+function renderSchedules(){
+  const container = document.getElementById('schedulesContainer');
+  if(!employees.length){
+    container.innerHTML = '<div class="empty-note">Пока нет ни одного зарегистрированного сотрудника</div>';
+    return;
+  }
+  container.innerHTML = employees.map(e => {
+    const s = schedulesData[e.chat_id] || { work_start:'09:00', work_end:'18:00', workdays:[1,2,3,4,5], grace_minutes:10, schedule_type:'fixed' };
+    const type = s.schedule_type || 'fixed';
+    const daysHtml = WEEK_DISPLAY_ORDER.map((idx) => {
+      const label = DAY_LABELS[idx];
+      const active = (s.workdays || [1,2,3,4,5]).includes(idx);
+      return `<div class="day-toggle ${active ? 'active' : ''}" data-chat="${e.chat_id}" data-day="${idx}" onclick="toggleDay(this)">${label}</div>`;
+    }).join('');
+    return `
+      <div class="sched-row" data-chat-row="${e.chat_id}">
+        <div class="name">${escapeHtml(e.name)}</div>
+        <div class="sched-controls">
+          <div>
+            <label>Тип графика</label>
+            <select class="sched-type" data-chat="${e.chat_id}" onchange="onScheduleTypeChange(this)">
+              <option value="fixed" ${type==='fixed'?'selected':''}>Фиксированный (+ дежурства/вызовы)</option>
+              <option value="flexible" ${type==='flexible'?'selected':''}>Гибкий (сутки/вызовы, без графика вообще)</option>
+            </select>
+          </div>
+          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+            <label>Начало</label>
+            <input type="text" class="sched-start" data-chat="${e.chat_id}" value="${s.work_start}" placeholder="09:00">
+          </div>
+          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+            <label>Конец</label>
+            <input type="text" class="sched-end" data-chat="${e.chat_id}" value="${s.work_end}" placeholder="18:00">
+          </div>
+          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+            <label>Допуск (мин)</label>
+            <input type="number" class="sched-grace" data-chat="${e.chat_id}" value="${s.grace_minutes ?? 10}">
+          </div>
+          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+            <label>Рабочие дни</label>
+            <div class="days">${daysHtml}</div>
+          </div>
+        </div>
+        <div class="flex-note hint" style="${type==='fixed'?'display:none;':''} padding-top:8px;">
+          Опоздания не считаются — только длительность смены (приход → уход), сколько бы часов это ни заняло.
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function onScheduleTypeChange(sel){
+  const row = sel.closest('.sched-row');
+  const isFlexible = sel.value === 'flexible';
+  row.querySelectorAll('.fixed-only').forEach(el => el.style.display = isFlexible ? 'none' : '');
+  row.querySelector('.flex-note').style.display = isFlexible ? '' : 'none';
+}
+
+function toggleDay(el){
+  el.classList.toggle('active');
+}
+
+async function saveAllSchedules(){
+  const btn = document.getElementById('saveSchedulesBtn');
+  const status = document.getElementById('scheduleSaveStatus');
+  btn.disabled = true;
+  btn.textContent = 'Сохраняем...';
+  status.textContent = '';
+
+  for(const e of employees){
+    const row = document.querySelector(`[data-chat-row="${e.chat_id}"]`);
+    if(!row) continue;
+    const schedule_type = row.querySelector('.sched-type').value;
+    const work_start = row.querySelector('.sched-start').value.trim();
+    const work_end = row.querySelector('.sched-end').value.trim();
+    const grace_minutes = parseInt(row.querySelector('.sched-grace').value) || 0;
+    const workdays = Array.from(row.querySelectorAll('.day-toggle.active')).map(d => parseInt(d.dataset.day));
+
+    await fetch('/api/admin?action=save-schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+      body: JSON.stringify({ chat_id: e.chat_id, work_start, work_end, workdays, grace_minutes, schedule_type }),
     });
-
-  const CALLOUT_TOLERANCE_MIN = 4 * 60; // 4 часа — за пределами этого окна считаем смену внеплановым вызовом, а не опозданием
-
-  let lateMinutes = 0;
-  let earlyMinutes = 0;
-  let scheduledStartStr = '';
-  let scheduledEndStr = '';
-  let scheduleLabel = sched ? (isFixed ? 'фиксированный' : 'гибкий') : '—';
-  let isCallout = false;
-
-  if (isFixed && sched && isAdditional) {
-    // Это уже вторая (или следующая) смена сотрудника в этот же календарный день —
-    // явно дежурство/доп. вызов, а не опоздание на обычную смену. Часы считаем, опоздание — нет.
-    scheduleLabel = isLastOfDay ? 'дежурство / доп. смена' : 'обед / выезд (в течение дня)';
-    isCallout = true;
-  } else if (isFixed && sched) {
-    const bIn = toBishkekParts(inTs);
-    const weekday = bIn.getDay();
-    const { h: sh, m: sm } = parseHHMM(sched.work_start);
-    const { h: eh, m: em } = parseHHMM(sched.work_end);
-    const scheduledStartMinutes = sh * 60 + sm;
-    const scheduledEndMinutes = eh * 60 + em;
-    const actualInMinutes = bIn.getHours() * 60 + bIn.getMinutes();
-
-    // Смена вне обычных рабочих дней ИЛИ начата сильно за пределами обычного окна (например, ночной вызов) —
-    // считаем внеплановой: часы считаем как обычно, но опоздание/ранний уход не начисляем.
-    const isWorkday = (sched.workdays || [1, 2, 3, 4, 5]).includes(weekday);
-    const withinWindow =
-      actualInMinutes >= scheduledStartMinutes - CALLOUT_TOLERANCE_MIN &&
-      actualInMinutes <= scheduledEndMinutes + CALLOUT_TOLERANCE_MIN;
-
-    if (isWorkday && withinWindow) {
-      scheduledStartStr = sched.work_start;
-      scheduledEndStr = sched.work_end;
-      const grace = sched.grace_minutes ?? 10;
-      lateMinutes = Math.max(0, actualInMinutes - (scheduledStartMinutes + grace));
-
-      if (outTs && isLastOfDay) {
-        const bOut = toBishkekParts(outTs);
-        const actualOutMinutes = bOut.getHours() * 60 + bOut.getMinutes();
-        // Ранний уход считаем только для ПОСЛЕДНЕГО ухода за день — если после этого
-        // сотрудник ещё вернётся в тот же день (обед, выезд по делам), это не ранний уход.
-        earlyMinutes = Math.max(0, scheduledEndMinutes - actualOutMinutes);
-      }
-    } else {
-      isCallout = true;
-      scheduleLabel = 'внеплановый вызов';
-    }
   }
 
-  const workedHours = outTs ? Math.round(((outTs - inTs) / 3600000) * 100) / 100 : null;
-
-  return {
-    chat_id: chatId,
-    name,
-    isDeleted: !!isDeleted,
-    scheduleLabel,
-    shiftStart: fmtDateTime(inTs),
-    shiftEnd: outTs ? fmtDateTime(outTs) : 'ещё на месте',
-    scheduledStart: scheduledStartStr,
-    scheduledEnd: scheduledEndStr,
-    lateMinutes,
-    earlyMinutes,
-    workedHours,
-    _inRaw: inTs,
-    _outRaw: outTs,
-  };
+  btn.disabled = false;
+  btn.textContent = 'Сохранить графики';
+  status.textContent = 'Сохранено ✓';
+  setTimeout(() => { status.textContent = ''; }, 3000);
+  loadSchedules();
 }
+
+function logout(){
+  localStorage.removeItem('tabelnaya_admin_password');
+  location.reload();
+}
+
+// Автоматический вход, если пароль уже сохранён с прошлого раза
+const savedPassword = localStorage.getItem('tabelnaya_admin_password');
+if (savedPassword) {
+  login(savedPassword);
+}
+
+// Фоновое обновление списка сотрудников и заявок каждые 20 секунд,
+// чтобы не нужно было вручную нажимать F5
+setInterval(async () => {
+  if (!PASSWORD) return; // ещё не вошли
+  const res = await fetch('/api/admin?action=employees', { headers: { 'x-admin-password': PASSWORD } }).catch(() => null);
+  if (!res) return;
+  const data = await res.json();
+  if (data.error) return;
+  employees = data.employees || [];
+  populateEmployeeFilter();
+  renderSchedules();
+  loadPendingDevices();
+}, 20000);
+</script>
+</body>
+</html>
