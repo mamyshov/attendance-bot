@@ -57,6 +57,11 @@ module.exports = async (req, res) => {
 
     if (action === 'delete-office' && req.method === 'POST') {
       const { id } = req.body;
+      // Сначала снимаем привязку у сотрудников, которые ссылались на этот филиал —
+      // иначе база данных не даст удалить филиал (защита от "битых" ссылок).
+      const { error: unassignErr } = await supabase.from('employees').update({ office_id: null }).eq('office_id', id);
+      if (unassignErr) throw unassignErr;
+
       const { error } = await supabase.from('offices').delete().eq('id', id);
       if (error) throw error;
       res.status(200).json({ ok: true });
