@@ -60,7 +60,10 @@
 
   .sched-row{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);}
   .sched-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
-  .sched-row .name{font-weight:600;margin-bottom:10px;}
+  .sched-row .name{font-weight:600;margin-bottom:0;}
+  .sched-row-header{display:flex; justify-content:space-between; align-items:center; cursor:pointer; padding:4px 0;}
+  .sched-row-header:hover .name{color:var(--blue);}
+  .sched-row-body{margin-top:12px;}
   .sched-controls{display:grid; grid-template-columns:280px 140px; gap:16px; align-items:end;}
   @media (max-width:600px){ .sched-controls{grid-template-columns:1fr; } }
   .weekday-table table{width:auto; min-width:320px;}
@@ -198,7 +201,7 @@
 
 
   <div class="card" data-tag="Графики работы по сотрудникам">
-    <div id="schedulesContainer"><div class="empty-note">Загрузка...</div></div>
+    <div class="scroll-box" id="schedulesContainer"><div class="empty-note">Загрузка...</div></div>
     <div style="display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
       <span id="scheduleSaveStatus" class="hint" style="margin:0;"></span>
       <button id="saveSchedulesBtn" onclick="saveAllSchedules()">Сохранить графики</button>
@@ -615,31 +618,45 @@ function renderSchedules(){
 
     return `
       <div class="sched-row" data-chat-row="${e.chat_id}">
-        <div class="name">${escapeHtml(e.name)}</div>
-        <div class="sched-controls" style="margin-bottom:14px;">
-          <div>
-            <label>Тип графика</label>
-            <select class="sched-type" data-chat="${e.chat_id}" onchange="onScheduleTypeChange(this)">
-              <option value="fixed" ${type==='fixed'?'selected':''}>Фиксированный (+ дежурства/вызовы)</option>
-              <option value="flexible" ${type==='flexible'?'selected':''}>Гибкий (сутки/вызовы, без графика вообще)</option>
-            </select>
-          </div>
-          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
-            <label>Допуск (мин)</label>
-            <input type="number" class="sched-grace" data-chat="${e.chat_id}" value="${s.grace_minutes ?? 10}">
-          </div>
+        <div class="sched-row-header" onclick="toggleScheduleRow(this)">
+          <div class="name">${escapeHtml(e.name)}</div>
+          <span class="hint sched-row-arrow">▸ Изменить график</span>
         </div>
-        <div class="fixed-only weekday-table" style="${type==='flexible'?'display:none;':''}">
-          <table>
-            <thead><tr><th>День</th><th>Работает</th><th>Начало</th><th>Конец</th></tr></thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>
-        </div>
-        <div class="flex-note hint" style="${type==='fixed'?'display:none;':''} padding-top:8px;">
-          Опоздания не считаются — только длительность смены (приход → уход), сколько бы часов это ни заняло.
+        <div class="sched-row-body" style="display:none;">
+          <div class="sched-controls" style="margin-bottom:14px;">
+            <div>
+              <label>Тип графика</label>
+              <select class="sched-type" data-chat="${e.chat_id}" onchange="onScheduleTypeChange(this)">
+                <option value="fixed" ${type==='fixed'?'selected':''}>Фиксированный (+ дежурства/вызовы)</option>
+                <option value="flexible" ${type==='flexible'?'selected':''}>Гибкий (сутки/вызовы, без графика вообще)</option>
+              </select>
+            </div>
+            <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
+              <label>Допуск (мин)</label>
+              <input type="number" class="sched-grace" data-chat="${e.chat_id}" value="${s.grace_minutes ?? 10}">
+            </div>
+          </div>
+          <div class="fixed-only weekday-table" style="${type==='flexible'?'display:none;':''}">
+            <table>
+              <thead><tr><th>День</th><th>Работает</th><th>Начало</th><th>Конец</th></tr></thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+          <div class="flex-note hint" style="${type==='fixed'?'display:none;':''} padding-top:8px;">
+            Опоздания не считаются — только длительность смены (приход → уход), сколько бы часов это ни заняло.
+          </div>
         </div>
       </div>`;
   }).join('');
+}
+
+function toggleScheduleRow(header){
+  const row = header.closest('.sched-row');
+  const body = row.querySelector('.sched-row-body');
+  const arrow = row.querySelector('.sched-row-arrow');
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? 'block' : 'none';
+  arrow.textContent = isHidden ? '▾ Свернуть' : '▸ Изменить график';
 }
 
 function onScheduleTypeChange(sel){
