@@ -35,6 +35,32 @@ module.exports = async (req, res) => {
   const action = req.query.action;
 
   try {
+    if (action === 'holidays') {
+      const { data, error } = await supabase.from('holidays').select('*').order('holiday_date');
+      if (error) throw error;
+      res.status(200).json({ holidays: data });
+      return;
+    }
+
+    if (action === 'save-holiday' && req.method === 'POST') {
+      const { holiday_date, label, day_type, short_start, short_end } = req.body;
+      const { error } = await supabase.from('holidays').upsert(
+        { holiday_date, label, day_type, short_start: short_start || null, short_end: short_end || null },
+        { onConflict: 'holiday_date' }
+      );
+      if (error) throw error;
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === 'delete-holiday' && req.method === 'POST') {
+      const { id } = req.body;
+      const { error } = await supabase.from('holidays').delete().eq('id', id);
+      if (error) throw error;
+      res.status(200).json({ ok: true });
+      return;
+    }
+
     if (action === 'offices') {
       const { data, error } = await supabase.from('offices').select('*').order('name');
       if (error) throw error;
@@ -156,12 +182,10 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'save-schedule' && req.method === 'POST') {
-      const { chat_id, work_start, work_end, workdays, grace_minutes, schedule_type } = req.body;
+      const { chat_id, weekday_hours, grace_minutes, schedule_type } = req.body;
       const { error } = await supabase.from('schedules').upsert({
         chat_id,
-        work_start,
-        work_end,
-        workdays,
+        weekday_hours,
         grace_minutes,
         schedule_type: schedule_type || 'fixed',
       });
@@ -202,6 +226,10 @@ module.exports = async (req, res) => {
       const existingChatIds = new Set((existingEmployees || []).map((e) => String(e.chat_id)));
       const scheduleByChatId = {};
       (schedules || []).forEach((s) => (scheduleByChatId[s.chat_id] = s));
+
+      const { data: holidaysData } = await supabase.from('holidays').select('*');
+      const holidayByDate = {};
+      (holidaysData || []).forEach((h) => (holidayByDate[h.holiday_date] = h));
 
       // Группируем события по сотруднику, затем "склеиваем" в смены: приход -> следующий уход
       const byEmployee = {};
@@ -259,7 +287,8 @@ module.exports = async (req, res) => {
               isFixed,
               !isFirstOfDay,
               !existingChatIds.has(String(empChatId)),
-              isLastOfDay
+              isLastOfDay,
+              holidayByDate
             )
           );
         });
@@ -291,7 +320,32 @@ function bishkekDateKey(date) {
   return `${b.getFullYear()}-${String(b.getMonth() + 1).padStart(2, '0')}-${String(b.getDate()).padStart(2, '0')}`;
 }
 
-function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, isDeleted, isLastOfDay) {
+// Определяет график на конкретный день: сначала проверяет праздничный календарь
+// (общий на всех), иначе берёт часы сотрудника на этот день недели (weekday_hours),
+// а если они не заданы — старые поля work_start/work_end/workdays (для совместимости).
+function getDaySchedule(sched, weekday, dateKey, holidayByDate) {
+  const holiday = holidayByDate[dateKey];
+  if (holiday) {
+    if (holiday.day_type === 'day_off') {
+      return { isWorkday: false, label: holiday.label || 'праздничный день' };
+    }
+    if (holiday.day_type === 'short_day' && holiday.short_start && holiday.short_end) {
+      return { isWorkday: true, start: holiday.short_start, end: holiday.short_end, isHoliday: true, label: holiday.label };
+    }
+  }
+
+  if (sched.weekday_hours && sched.weekday_hours[weekday]) {
+    const wh = sched.weekday_hours[weekday];
+    if (!wh.active) return { isWorkday: false };
+    return { isWorkday: true, start: wh.start, end: wh.end };
+  }
+
+  const isWorkday = (sched.workdays || [1, 2, 3, 4, 5]).includes(weekday);
+  if (!isWorkday) return { isWorkday: false };
+  return { isWorkday: true, start: sched.work_start || '09:00', end: sched.work_end || '18:00' };
+}
+
+function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, isDeleted, isLastOfDay, holidayByDate) {
   const fmtDateTime = (d) =>
     d.toLocaleString('ru-RU', {
       timeZone: 'Asia/Bishkek',
@@ -318,35 +372,46 @@ function buildShiftRow(chatId, name, inTs, outTs, sched, isFixed, isAdditional, 
   } else if (isFixed && sched) {
     const bIn = toBishkekParts(inTs);
     const weekday = bIn.getDay();
-    const { h: sh, m: sm } = parseHHMM(sched.work_start);
-    const { h: eh, m: em } = parseHHMM(sched.work_end);
-    const scheduledStartMinutes = sh * 60 + sm;
-    const scheduledEndMinutes = eh * 60 + em;
-    const actualInMinutes = bIn.getHours() * 60 + bIn.getMinutes();
+    const dateKey = bishkekDateKey(inTs);
+    const daySched = getDaySchedule(sched, weekday, dateKey, holidayByDate || {});
 
-    // Смена вне обычных рабочих дней ИЛИ начата сильно за пределами обычного окна (например, ночной вызов) —
-    // считаем внеплановой: часы считаем как обычно, но опоздание/ранний уход не начисляем.
-    const isWorkday = (sched.workdays || [1, 2, 3, 4, 5]).includes(weekday);
-    const withinWindow =
-      actualInMinutes >= scheduledStartMinutes - CALLOUT_TOLERANCE_MIN &&
-      actualInMinutes <= scheduledEndMinutes + CALLOUT_TOLERANCE_MIN;
-
-    if (isWorkday && withinWindow) {
-      scheduledStartStr = sched.work_start;
-      scheduledEndStr = sched.work_end;
-      const grace = sched.grace_minutes ?? 10;
-      lateMinutes = Math.max(0, actualInMinutes - (scheduledStartMinutes + grace));
-
-      if (outTs && isLastOfDay) {
-        const bOut = toBishkekParts(outTs);
-        const actualOutMinutes = bOut.getHours() * 60 + bOut.getMinutes();
-        // Ранний уход считаем только для ПОСЛЕДНЕГО ухода за день — если после этого
-        // сотрудник ещё вернётся в тот же день (обед, выезд по делам), это не ранний уход.
-        earlyMinutes = Math.max(0, scheduledEndMinutes - actualOutMinutes);
-      }
-    } else {
+    if (!daySched.isWorkday) {
       isCallout = true;
-      scheduleLabel = 'внеплановый вызов';
+      scheduleLabel = daySched.label ? `выходной (${daySched.label})` : 'выходной день';
+    } else {
+      const { h: sh, m: sm } = parseHHMM(daySched.start);
+      const { h: eh, m: em } = parseHHMM(daySched.end);
+      const scheduledStartMinutes = sh * 60 + sm;
+      const scheduledEndMinutes = eh * 60 + em;
+      const actualInMinutes = bIn.getHours() * 60 + bIn.getMinutes();
+
+      // Начата сильно за пределами обычного окна (например, ночной вызов) —
+      // считаем внеплановой: часы считаем как обычно, но опоздание/ранний уход не начисляем.
+      const withinWindow =
+        actualInMinutes >= scheduledStartMinutes - CALLOUT_TOLERANCE_MIN &&
+        actualInMinutes <= scheduledEndMinutes + CALLOUT_TOLERANCE_MIN;
+
+      if (withinWindow) {
+        scheduledStartStr = daySched.start;
+        scheduledEndStr = daySched.end;
+        const grace = sched.grace_minutes ?? 10;
+        lateMinutes = Math.max(0, actualInMinutes - (scheduledStartMinutes + grace));
+
+        if (outTs && isLastOfDay) {
+          const bOut = toBishkekParts(outTs);
+          const actualOutMinutes = bOut.getHours() * 60 + bOut.getMinutes();
+          // Ранний уход считаем только для ПОСЛЕДНЕГО ухода за день — если после этого
+          // сотрудник ещё вернётся в тот же день (обед, выезд по делам), это не ранний уход.
+          earlyMinutes = Math.max(0, scheduledEndMinutes - actualOutMinutes);
+        }
+
+        if (daySched.isHoliday) {
+          scheduleLabel = `фиксированный (${daySched.label || 'короткий день'})`;
+        }
+      } else {
+        isCallout = true;
+        scheduleLabel = 'внеплановый вызов';
+      }
     }
   }
 
