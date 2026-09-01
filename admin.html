@@ -61,8 +61,13 @@
   .sched-row{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);}
   .sched-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
   .sched-row .name{font-weight:600;margin-bottom:10px;}
-  .sched-controls{display:grid; grid-template-columns:240px 100px 100px 110px 1fr; gap:16px; align-items:end;}
-  @media (max-width:800px){ .sched-controls{grid-template-columns:1fr 1fr; } }
+  .sched-controls{display:grid; grid-template-columns:280px 140px; gap:16px; align-items:end;}
+  @media (max-width:600px){ .sched-controls{grid-template-columns:1fr; } }
+  .weekday-table table{width:auto; min-width:320px;}
+  .weekday-table th, .weekday-table td{padding:6px 10px; white-space:nowrap;}
+  .weekday-table input[type=text]{width:80px; padding:6px 8px;}
+  .weekday-table input[type=text]:disabled{background:#F3F4F6; color:var(--text-soft);}
+  .weekday-table input[type=checkbox]{width:16px; height:16px;}
 
   .pending-row{display:flex;gap:12px;align-items:end;flex-wrap:wrap;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border);}
   .pending-row:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0;}
@@ -158,6 +163,40 @@
     </div>
   </div>
 
+  <div class="card" data-tag="Праздники и особые дни">
+    <div id="holidaysContainer"><div class="empty-note">Загрузка...</div></div>
+    <div class="filters" style="margin-top:14px;">
+      <div>
+        <label>Дата</label>
+        <input type="date" id="newHolidayDate">
+      </div>
+      <div>
+        <label>Название</label>
+        <input type="text" id="newHolidayLabel" placeholder="Например: Новый год">
+      </div>
+      <div>
+        <label>Тип дня</label>
+        <select id="newHolidayType" onchange="onHolidayTypeChange()">
+          <option value="day_off">Выходной (никто не работает)</option>
+          <option value="short_day">Короткий день (у всех)</option>
+        </select>
+      </div>
+      <div id="newHolidayShortFields" style="display:none;">
+        <label>Начало</label>
+        <input type="text" id="newHolidayShortStart" placeholder="09:00">
+      </div>
+      <div id="newHolidayShortFields2" style="display:none;">
+        <label>Конец</label>
+        <input type="text" id="newHolidayShortEnd" placeholder="14:00">
+      </div>
+      <div style="flex:0;">
+        <button id="addHolidayBtn" onclick="addHoliday()">Добавить дату</button>
+      </div>
+    </div>
+    <div class="hint">Действует на всех сотрудников сразу. «Выходной» — опоздания в этот день не считаются вообще. «Короткий день» — у всех сотрудников часы этого дня заменяются на указанные здесь (даже если у сотрудника обычно другие часы на этот день недели).</div>
+  </div>
+
+
   <div class="card" data-tag="Графики работы по сотрудникам">
     <div id="schedulesContainer"><div class="empty-note">Загрузка...</div></div>
     <div style="display:flex; justify-content:flex-end; align-items:center; gap:12px; margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
@@ -204,6 +243,7 @@ async function login(providedPassword){
   loadSchedules();
   await loadOffices();
   loadPendingDevices();
+  loadHolidays();
 }
 
 function populateEmployeeFilter(){
@@ -323,6 +363,87 @@ async function deleteOffice(id){
     return;
   }
   loadOffices();
+}
+
+function onHolidayTypeChange(){
+  const isShort = document.getElementById('newHolidayType').value === 'short_day';
+  document.getElementById('newHolidayShortFields').style.display = isShort ? '' : 'none';
+  document.getElementById('newHolidayShortFields2').style.display = isShort ? '' : 'none';
+}
+
+async function loadHolidays(){
+  const res = await fetch('/api/admin?action=holidays', { headers: { 'x-admin-password': PASSWORD } });
+  const data = await res.json();
+  renderHolidays(data.holidays || []);
+}
+
+function renderHolidays(list){
+  const container = document.getElementById('holidaysContainer');
+  if(!list.length){
+    container.innerHTML = '<div class="empty-note">Пока нет ни одной особой даты</div>';
+    return;
+  }
+  container.innerHTML = '<table><thead><tr><th>Дата</th><th>Название</th><th>Тип</th><th>Часы</th><th></th></tr></thead><tbody>' +
+    list.map(h => `
+      <tr>
+        <td>${h.holiday_date}</td>
+        <td>${escapeHtml(h.label || '—')}</td>
+        <td>${h.day_type === 'day_off' ? 'Выходной' : 'Короткий день'}</td>
+        <td>${h.day_type === 'short_day' ? (h.short_start + '–' + h.short_end) : '—'}</td>
+        <td><button class="secondary" onclick="deleteHoliday(${h.id})">Удалить</button></td>
+      </tr>
+    `).join('') + '</tbody></table>';
+}
+
+async function addHoliday(){
+  const holiday_date = document.getElementById('newHolidayDate').value;
+  const label = document.getElementById('newHolidayLabel').value.trim();
+  const day_type = document.getElementById('newHolidayType').value;
+  const short_start = document.getElementById('newHolidayShortStart').value.trim();
+  const short_end = document.getElementById('newHolidayShortEnd').value.trim();
+
+  if(!holiday_date){ alert('Укажите дату'); return; }
+  if(day_type === 'short_day' && (!short_start || !short_end)){
+    alert('Для короткого дня укажите начало и конец');
+    return;
+  }
+
+  const btn = document.getElementById('addHolidayBtn');
+  btn.disabled = true;
+  btn.textContent = 'Добавляем...';
+
+  const res = await fetch('/api/admin?action=save-holiday', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ holiday_date, label, day_type, short_start, short_end }),
+  });
+  const data = await res.json();
+
+  btn.disabled = false;
+  btn.textContent = 'Добавить дату';
+
+  if(data.error){
+    alert('Не удалось добавить: ' + data.error);
+    return;
+  }
+
+  document.getElementById('newHolidayDate').value = '';
+  document.getElementById('newHolidayLabel').value = '';
+  document.getElementById('newHolidayShortStart').value = '';
+  document.getElementById('newHolidayShortEnd').value = '';
+  loadHolidays();
+}
+
+async function deleteHoliday(id){
+  if(!confirm('Удалить эту дату из календаря?')) return;
+  const res = await fetch('/api/admin?action=delete-holiday', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ id }),
+  });
+  const data = await res.json();
+  if(data.error){ alert('Не удалось удалить: ' + data.error); return; }
+  loadHolidays();
 }
 
 async function loadPendingDevices(){
@@ -476,17 +597,26 @@ function renderSchedules(){
     return;
   }
   container.innerHTML = employees.map(e => {
-    const s = schedulesData[e.chat_id] || { work_start:'09:00', work_end:'18:00', workdays:[1,2,3,4,5], grace_minutes:10, schedule_type:'fixed' };
+    const s = schedulesData[e.chat_id] || { grace_minutes:10, schedule_type:'fixed' };
     const type = s.schedule_type || 'fixed';
-    const daysHtml = WEEK_DISPLAY_ORDER.map((idx) => {
+    const wh = s.weekday_hours || defaultWeekdayHours();
+
+    const rowsHtml = WEEK_DISPLAY_ORDER.map((idx) => {
       const label = DAY_LABELS[idx];
-      const active = (s.workdays || [1,2,3,4,5]).includes(idx);
-      return `<div class="day-toggle ${active ? 'active' : ''}" data-chat="${e.chat_id}" data-day="${idx}" onclick="toggleDay(this)">${label}</div>`;
+      const day = wh[idx] || { active:false, start:'09:00', end:'18:00' };
+      return `
+        <tr data-day-row="${idx}">
+          <td>${label}</td>
+          <td><input type="checkbox" class="wh-active" data-day="${idx}" ${day.active ? 'checked' : ''} onchange="onWeekdayActiveChange(this)"></td>
+          <td><input type="text" class="wh-start" data-day="${idx}" value="${day.start || '09:00'}" ${day.active ? '' : 'disabled'}></td>
+          <td><input type="text" class="wh-end" data-day="${idx}" value="${day.end || '18:00'}" ${day.active ? '' : 'disabled'}></td>
+        </tr>`;
     }).join('');
+
     return `
       <div class="sched-row" data-chat-row="${e.chat_id}">
         <div class="name">${escapeHtml(e.name)}</div>
-        <div class="sched-controls">
+        <div class="sched-controls" style="margin-bottom:14px;">
           <div>
             <label>Тип графика</label>
             <select class="sched-type" data-chat="${e.chat_id}" onchange="onScheduleTypeChange(this)">
@@ -495,21 +625,15 @@ function renderSchedules(){
             </select>
           </div>
           <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
-            <label>Начало</label>
-            <input type="text" class="sched-start" data-chat="${e.chat_id}" value="${s.work_start}" placeholder="09:00">
-          </div>
-          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
-            <label>Конец</label>
-            <input type="text" class="sched-end" data-chat="${e.chat_id}" value="${s.work_end}" placeholder="18:00">
-          </div>
-          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
             <label>Допуск (мин)</label>
             <input type="number" class="sched-grace" data-chat="${e.chat_id}" value="${s.grace_minutes ?? 10}">
           </div>
-          <div class="fixed-only" style="${type==='flexible'?'display:none;':''}">
-            <label>Рабочие дни</label>
-            <div class="days">${daysHtml}</div>
-          </div>
+        </div>
+        <div class="fixed-only weekday-table" style="${type==='flexible'?'display:none;':''}">
+          <table>
+            <thead><tr><th>День</th><th>Работает</th><th>Начало</th><th>Конец</th></tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
         </div>
         <div class="flex-note hint" style="${type==='fixed'?'display:none;':''} padding-top:8px;">
           Опоздания не считаются — только длительность смены (приход → уход), сколько бы часов это ни заняло.
@@ -525,8 +649,20 @@ function onScheduleTypeChange(sel){
   row.querySelector('.flex-note').style.display = isFlexible ? '' : 'none';
 }
 
-function toggleDay(el){
-  el.classList.toggle('active');
+function onWeekdayActiveChange(checkbox){
+  const row = checkbox.closest('tr');
+  const active = checkbox.checked;
+  row.querySelector('.wh-start').disabled = !active;
+  row.querySelector('.wh-end').disabled = !active;
+}
+
+function defaultWeekdayHours(){
+  // По умолчанию: Пн-Пт рабочие (09:00-18:00), Сб/Вс выходные
+  const result = {};
+  for(let d = 0; d <= 6; d++){
+    result[d] = { active: d >= 1 && d <= 5, start: '09:00', end: '18:00' };
+  }
+  return result;
 }
 
 async function saveAllSchedules(){
@@ -540,15 +676,21 @@ async function saveAllSchedules(){
     const row = document.querySelector(`[data-chat-row="${e.chat_id}"]`);
     if(!row) continue;
     const schedule_type = row.querySelector('.sched-type').value;
-    const work_start = row.querySelector('.sched-start').value.trim();
-    const work_end = row.querySelector('.sched-end').value.trim();
     const grace_minutes = parseInt(row.querySelector('.sched-grace').value) || 0;
-    const workdays = Array.from(row.querySelectorAll('.day-toggle.active')).map(d => parseInt(d.dataset.day));
+
+    const weekday_hours = {};
+    row.querySelectorAll('tr[data-day-row]').forEach(tr => {
+      const day = tr.dataset.dayRow;
+      const active = tr.querySelector('.wh-active').checked;
+      const start = tr.querySelector('.wh-start').value.trim() || '09:00';
+      const end = tr.querySelector('.wh-end').value.trim() || '18:00';
+      weekday_hours[day] = { active, start, end };
+    });
 
     await fetch('/api/admin?action=save-schedule', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
-      body: JSON.stringify({ chat_id: e.chat_id, work_start, work_end, workdays, grace_minutes, schedule_type }),
+      body: JSON.stringify({ chat_id: e.chat_id, weekday_hours, grace_minutes, schedule_type }),
     });
   }
 
