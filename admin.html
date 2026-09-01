@@ -214,6 +214,7 @@
 let PASSWORD = '';
 let employees = [];
 let schedulesData = {};
+let expandedScheduleIds = new Set();
 let lastRows = [];
 const DAY_LABELS = ['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
 const WEEK_DISPLAY_ORDER = [1,2,3,4,5,6,0]; // Пн..Вс — порядок отображения кнопок
@@ -616,13 +617,16 @@ function renderSchedules(){
         </tr>`;
     }).join('');
 
+    const chatIdStr = String(e.chat_id);
+    const isExpanded = expandedScheduleIds.has(chatIdStr);
+
     return `
       <div class="sched-row" data-chat-row="${e.chat_id}">
         <div class="sched-row-header" onclick="toggleScheduleRow(this)">
           <div class="name">${escapeHtml(e.name)}</div>
-          <span class="hint sched-row-arrow">▸ Изменить график</span>
+          <span class="hint sched-row-arrow">${isExpanded ? '▾ Свернуть' : '▸ Изменить график'}</span>
         </div>
-        <div class="sched-row-body" style="display:none;">
+        <div class="sched-row-body" style="${isExpanded ? '' : 'display:none;'}">
           <div class="sched-controls" style="margin-bottom:14px;">
             <div>
               <label>Тип графика</label>
@@ -652,11 +656,14 @@ function renderSchedules(){
 
 function toggleScheduleRow(header){
   const row = header.closest('.sched-row');
+  const chatId = row.dataset.chatRow;
   const body = row.querySelector('.sched-row-body');
   const arrow = row.querySelector('.sched-row-arrow');
   const isHidden = body.style.display === 'none';
   body.style.display = isHidden ? 'block' : 'none';
   arrow.textContent = isHidden ? '▾ Свернуть' : '▸ Изменить график';
+  if(isHidden) expandedScheduleIds.add(chatId);
+  else expandedScheduleIds.delete(chatId);
 }
 
 function onScheduleTypeChange(sel){
@@ -739,7 +746,6 @@ setInterval(async () => {
   if (data.error) return;
   employees = data.employees || [];
   populateEmployeeFilter();
-  renderSchedules();
   loadPendingDevices();
 }, 20000);
 </script>
