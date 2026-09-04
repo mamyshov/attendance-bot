@@ -168,9 +168,28 @@ module.exports = async (req, res) => {
     }
 
     if (action === 'employees') {
-      const { data, error } = await supabase.from('employees').select('chat_id, name').order('name');
+      const { data, error } = await supabase.from('employees').select('chat_id, name, is_agent').order('name');
       if (error) throw error;
       res.status(200).json({ employees: data });
+      return;
+    }
+
+    if (action === 'toggle-agent' && req.method === 'POST') {
+      const { chat_id, is_agent } = req.body;
+      const { error } = await supabase.from('employees').update({ is_agent }).eq('chat_id', chat_id);
+      if (error) throw error;
+      res.status(200).json({ ok: true });
+      return;
+    }
+
+    if (action === 'agent-locations') {
+      const { data, error } = await supabase
+        .from('employees')
+        .select('chat_id, name, last_lat, last_lon, last_location_at')
+        .eq('is_agent', true)
+        .not('last_lat', 'is', null);
+      if (error) throw error;
+      res.status(200).json({ agents: data });
       return;
     }
 
