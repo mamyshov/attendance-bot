@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Табельная — панель отдела кадров</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
   :root{
     --bg:#F5F6F8; --card:#FFFFFF; --border:#E3E6EB;
@@ -132,6 +134,12 @@
     <div class="scroll-box" id="reportTable"><div class="empty-note">Выберите период и нажмите «Показать»</div></div>
   </div>
 
+  <div class="card" data-tag="Живая карта агентов">
+    <div id="agentMap" style="height:400px; border:1px solid var(--border); border-radius:8px;"></div>
+    <div id="agentMapEmpty" class="empty-note" style="display:none;">Нет агентов с известным местоположением. Отметьте сотрудника галочкой «Агент» в списке ниже и дождитесь его следующей отметки геолокации.</div>
+    <div class="hint" style="margin-top:8px;">Показывает последнюю известную точку сотрудников, отмеченных как «Агент» ниже. Обновляется автоматически каждые 20 секунд.</div>
+  </div>
+
   <div class="card" data-tag="Сотрудники">
     <button id="toggleEmployeesBtn" class="secondary" onclick="toggleEmployeesList()">Показать список сотрудников</button>
     <div class="scroll-box" id="employeesListContainer" style="display:none; margin-top:14px;"><div class="empty-note">Загрузка...</div></div>
@@ -248,6 +256,8 @@ async function login(providedPassword){
   await loadOffices();
   loadPendingDevices();
   loadHolidays();
+  loadAgentMap();
+  setInterval(loadAgentMap, 20000);
 }
 
 function populateEmployeeFilter(){
@@ -271,13 +281,25 @@ function renderEmployeesList(){
     container.innerHTML = '<div class="empty-note">Сотрудников пока нет</div>';
     return;
   }
-  container.innerHTML = '<table><thead><tr><th>Имя</th><th></th></tr></thead><tbody>' +
+  container.innerHTML = '<table><thead><tr><th>Имя</th><th>Агент (живая карта)</th><th></th></tr></thead><tbody>' +
     employees.map(e => `
       <tr>
         <td>${escapeHtml(e.name)}</td>
+        <td><input type="checkbox" ${e.is_agent ? 'checked' : ''} onchange="onAgentToggle(${e.chat_id}, this.checked)"></td>
         <td style="text-align:right;"><button class="secondary" onclick="deleteEmployee(${e.chat_id}, '${escapeHtml(e.name).replace(/'/g, "\\'")}')">Удалить</button></td>
       </tr>
     `).join('') + '</tbody></table>';
+}
+
+async function onAgentToggle(chatId, isAgent){
+  await fetch('/api/admin?action=toggle-agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-password': PASSWORD },
+    body: JSON.stringify({ chat_id: chatId, is_agent: isAgent }),
+  });
+  const emp = employees.find(e => e.chat_id === chatId);
+  if(emp) emp.is_agent = isAgent;
+  loadAgentMap();
 }
 
 async function deleteEmployee(chatId, name){
@@ -448,6 +470,67 @@ async function deleteHoliday(id){
   const data = await res.json();
   if(data.error){ alert('Не удалось удалить: ' + data.error); return; }
   loadHolidays();
+}
+
+let agentMapInstance = null;
+let agentMarkers = {};
+
+async function loadAgentMap(){
+  if(!PASSWORD) return;
+  const res = await fetch('/api/admin?action=agent-locations', { headers: { 'x-admin-password': PASSWORD } }).catch(() => null);
+  if(!res) return;
+  const data = await res.json();
+  const agents = data.agents || [];
+
+  const emptyEl = document.getElementById('agentMapEmpty');
+  const mapEl = document.getElementById('agentMap');
+
+  if(!agents.length){
+    emptyEl.style.display = 'block';
+    mapEl.style.display = 'none';
+    return;
+  }
+  emptyEl.style.display = 'none';
+  mapEl.style.display = 'block';
+
+  if(!agentMapInstance){
+    agentMapInstance = L.map('agentMap');
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
+      maxZoom: 19,
+    }).addTo(agentMapInstance);
+  }
+
+  const seenIds = new Set();
+  agents.forEach(a => {
+    seenIds.add(a.chat_id);
+    const timeStr = a.last_location_at
+      ? new Date(a.last_location_at).toLocaleTimeString('ru-RU', { timeZone: 'Asia/Bishkek', hour: '2-digit', minute: '2-digit' })
+      : '';
+    if(agentMarkers[a.chat_id]){
+      agentMarkers[a.chat_id].setLatLng([a.last_lat, a.last_lon]);
+      agentMarkers[a.chat_id].setPopupContent(`${escapeHtml(a.name)}<br>Обновлено: ${timeStr}`);
+    } else {
+      agentMarkers[a.chat_id] = L.marker([a.last_lat, a.last_lon])
+        .addTo(agentMapInstance)
+        .bindPopup(`${escapeHtml(a.name)}<br>Обновлено: ${timeStr}`);
+    }
+  });
+
+  // Убираем маркеры сотрудников, которых сняли с "Агент"
+  Object.keys(agentMarkers).forEach(id => {
+    if(!seenIds.has(Number(id))){
+      agentMapInstance.removeLayer(agentMarkers[id]);
+      delete agentMarkers[id];
+    }
+  });
+
+  const latlngs = agents.map(a => [a.last_lat, a.last_lon]);
+  if(latlngs.length === 1){
+    agentMapInstance.setView(latlngs[0], 15);
+  } else {
+    agentMapInstance.fitBounds(latlngs, { padding: [30, 30] });
+  }
 }
 
 async function loadPendingDevices(){
