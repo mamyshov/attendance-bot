@@ -76,6 +76,13 @@ module.exports = async (req, res) => {
       return;
     }
 
+    if (emp.is_agent) {
+      await supabase
+        .from('employees')
+        .update({ last_lat: lat, last_lon: lon, last_location_at: new Date().toISOString() })
+        .eq('chat_id', emp.chat_id);
+    }
+
     const dist = distanceMeters(office.lat, office.lon, lat, lon);
     const nowInside = dist <= office.radius;
     let changed = false;
